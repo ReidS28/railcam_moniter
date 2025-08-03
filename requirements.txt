@@ -1,0 +1,10 @@
+ultralytics
+torch
+torchvision
+torchaudio
+opencv-python
+selenium
+webdriver-manager
+ffmpeg-python
+bs4
+PyQt5
