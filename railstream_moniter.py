@@ -1,412 +1,219 @@
 import sys
 import os
-
-# SUPPRESS ALL OUTPUT IMMEDIATELY
-sys.stdout = open(os.devnull, 'w')
-sys.stderr = open(os.devnull, 'w')
-
-# Set all environment variables first
-os.environ['WDM_LOG_LEVEL'] = '0'
-os.environ['WDM_PRINT_FIRST_LINE'] = 'False'
-os.environ['WDM_LOG'] = 'False'
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'rtsp_transport;udp'
-
 import time
-import cv2
-import torch
+import subprocess
 import threading
-import queue
-import logging
-import warnings
-from datetime import datetime
 import numpy as np
+from collections import deque
 
-# SUPPRESS ALL LOGS AND WARNINGS
-logging.getLogger().setLevel(logging.CRITICAL)
-logging.getLogger('urllib3').setLevel(logging.CRITICAL)
-logging.getLogger('selenium').setLevel(logging.CRITICAL)
-logging.getLogger('webdriver_manager').setLevel(logging.CRITICAL)
-logging.getLogger('WDM').setLevel(logging.CRITICAL)
-logging.getLogger('ultralytics').setLevel(logging.CRITICAL)
-warnings.filterwarnings("ignore")
-
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QPushButton
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QLabel
 from PyQt5.QtCore import QTimer, QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QImage, QPixmap, QFont
 
-from ultralytics import YOLO
-from slack_sdk import WebClient
-
-# Restore stdout/stderr for essential output only
-sys.stdout = sys.__stdout__
-sys.stderr = sys.__stderr__
-
-from stream_url_fetcher import get_m3u8
-
-# Slack configuration
-slack_token = "xoxb-8678201375584-9289783952051-BanAx2McG4hrWrgf3nCg0D1Z"
-user_id = "U08KY5XBKJ4"
-
-# Initialize Slack client
-client = WebClient(token=slack_token)
-
-def send_slack_photo(image_path, message="", user_id=None, channel=None):
-    if not os.path.exists(image_path):
-        return False
-    
-    try:
-        if user_id:
-            dm_response = client.conversations_open(users=[user_id])
-            if not dm_response["ok"]:
-                return False
-            target = dm_response["channel"]["id"]
-        elif channel:
-            target = channel
-        else:
-            return False
-        
-        response = client.files_upload_v2(
-            file=image_path,
-            filename=os.path.basename(image_path),
-            title=f"Train Detection - {os.path.basename(image_path)}",
-            initial_comment=message,
-            channel=target
-        )
-        
-        return response["ok"]
-            
-    except Exception:
-        return False
-
-def send_slack_message(message, user_id=None, channel=None):
-    target = user_id if user_id else channel
-    if not target:
-        return False
-    
-    try:
-        response = client.chat_postMessage(channel=target, text=message)
-        return response["ok"]
-    except Exception:
-        return False
-
-def handle_train(path):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    message = f"🚂 Train Detected @ {timestamp}"
-    
-    success = send_slack_photo(path, message, user_id=user_id)
-    
-    if not success:
-        fallback_message = f"{message}\n\n📸 Image location: {path}"
-        send_slack_message(fallback_message, user_id=user_id)
-    
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-    except Exception:
-        pass
-
-# --- YOLO Setup ---
-print("Getting stream URL...")
-#stream_url = get_m3u8("https://railstream.net/camera-lineup/delaware-railcam")
+# Stream URL
 stream_url = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
-if not stream_url:
-    print("Failed to get stream URL")
-    exit()
-
-print(f"Stream URL: {stream_url}")
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {device}")
-
-# Load YOLO model
-print("Loading YOLO model...")
-temp_stdout = sys.stdout
-sys.stdout = open(os.devnull, 'w')
-model = YOLO("yolov8n.pt", verbose=False).to(device)
-sys.stdout.close()
-sys.stdout = temp_stdout
-print("YOLO model loaded")
-
-# Global variables
-train_present = False
-last_train_seen = 0
-frame_count = 0
-start_time = time.time()
-first_detect_time = None
-screenshot_taken = False
-last_box = None
-last_center = None
-last_detection_time = 0
-connection_status = "Disconnected"
-
-# Queues
-detection_queue = queue.Queue(maxsize=2)
-slack_queue = queue.Queue()
-
-class StreamCapture:
-    def __init__(self, stream_url):
-        self.stream_url = stream_url
-        self.cap = None
-        self.reconnect_attempts = 0
-        self.max_reconnect_attempts = 5
-        self.last_reconnect_time = 0
-        self.reconnect_delay = 5  # seconds
-        
-    def connect(self):
-        """Attempt to connect to the stream"""
-        global connection_status
-        
-        if self.cap is not None:
-            self.cap.release()
-            
-        print(f"Attempting to connect to stream... (attempt {self.reconnect_attempts + 1})")
-        connection_status = "Connecting..."
-        
-        # Create new capture with optimized settings
-        self.cap = cv2.VideoCapture(self.stream_url)
-        
-        # Set optimal parameters for streaming
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.cap.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS for stability
-        
-        # Set timeout properties if available
-        try:
-            self.cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)  # 10 second timeout
-            self.cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)   # 5 second read timeout
-        except:
-            pass
-        
-        # Test the connection
-        ret, frame = self.cap.read()
-        if ret and frame is not None:
-            connection_status = "Connected"
-            self.reconnect_attempts = 0
-            print("Stream connected successfully")
-            return True
-        else:
-            connection_status = "Failed"
-            self.cap.release()
-            self.cap = None
-            print("Failed to connect to stream")
-            return False
-    
-    def read(self):
-        """Read frame with error handling"""
-        global connection_status
-        
-        if self.cap is None:
-            return False, None
-            
-        ret, frame = self.cap.read()
-        
-        if not ret or frame is None:
-            connection_status = "Connection Lost"
-            return False, None
-            
-        return True, frame
-    
-    def should_reconnect(self):
-        """Check if we should attempt reconnection"""
-        current_time = time.time()
-        
-        if (self.reconnect_attempts < self.max_reconnect_attempts and 
-            current_time - self.last_reconnect_time > self.reconnect_delay):
-            self.last_reconnect_time = current_time
-            self.reconnect_attempts += 1
-            return True
-        
-        return False
-    
-    def release(self):
-        if self.cap is not None:
-            self.cap.release()
-
-class SlackWorker(QThread):
-    def run(self):
-        while True:
-            try:
-                image_path = slack_queue.get(timeout=1)
-                if image_path is None:
-                    break
-                handle_train(image_path)
-                slack_queue.task_done()
-            except queue.Empty:
-                continue
-            except Exception:
-                pass
-
-class DetectionWorker(QThread):
-    detection_update = pyqtSignal(bool, tuple, tuple)
-    
-    def run(self):
-        global train_present, last_train_seen, last_box, last_center
-        global first_detect_time, screenshot_taken, last_detection_time
-
-        while True:
-            try:
-                frame = detection_queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
-                
-            current_time = time.time()
-            
-            # Rate limit detection to every 500ms for stability
-            if current_time - last_detection_time < 0.5:
-                continue
-                
-            last_detection_time = current_time
-            
-            try:
-                # Resize for faster inference
-                height, width = frame.shape[:2]
-                if width > 320:  # Even smaller for faster processing
-                    scale = 320 / width
-                    new_width = 320
-                    new_height = int(height * scale)
-                    detection_frame = cv2.resize(frame, (new_width, new_height))
-                    scale_factor = width / 320
-                else:
-                    detection_frame = frame
-                    scale_factor = 1.0
-
-                results = model(detection_frame, verbose=False, conf=0.4)  # Lower confidence for better detection
-
-                detected = False
-                max_area = 0
-                best_box = None
-                best_center = None
-
-                for box in results[0].boxes:
-                    cls = model.names[int(box.cls)]
-                    if cls == "train":
-                        detected = True
-                        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                        
-                        if scale_factor != 1.0:
-                            x1, y1, x2, y2 = x1 * scale_factor, y1 * scale_factor, x2 * scale_factor, y2 * scale_factor
-                        
-                        area = (x2 - x1) * (y2 - y1)
-                        if area > max_area:
-                            max_area = area
-                            best_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
-                            best_box = (x1, y1, x2, y2)
-
-                if detected:
-                    if not train_present:
-                        first_detect_time = current_time
-                        screenshot_taken = False
-
-                    if not screenshot_taken and first_detect_time and (current_time - first_detect_time >= 2.0):  # Wait 2 seconds
-                        filename = f"detections/train_{int(current_time)}.jpg"
-                        os.makedirs("detections", exist_ok=True)
-                        cv2.imwrite(filename, frame)
-                        screenshot_taken = True
-
-                        try:
-                            slack_queue.put_nowait(filename)
-                        except queue.Full:
-                            pass
-
-                    train_present = True
-                    last_train_seen = current_time
-                    last_box = best_box
-                    last_center = best_center
-                    
-                    self.detection_update.emit(True, best_box, best_center)
-                else:
-                    if train_present and (current_time - last_train_seen) > 3.0:  # Wait 3 seconds before clearing
-                        train_present = False
-                        last_box = None
-                        last_center = None
-                        first_detect_time = None
-                        screenshot_taken = False
-                        
-                        self.detection_update.emit(False, None, None)
-                        
-            except Exception as e:
-                print(f"Detection error: {e}")
-                continue
 
 class VideoThread(QThread):
     frame_ready = pyqtSignal(np.ndarray)
     status_update = pyqtSignal(str)
     
-    def __init__(self, stream_url):
+    def __init__(self, url):
         super().__init__()
-        self.stream_capture = StreamCapture(stream_url)
-        self.running = True
+        self.url = url
+        self.running = False
+        self.process = None
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 5
+        
+        # Frame buffer for smooth playback
+        self.buffer_size = 30  # A slightly larger buffer for better resilience
+        self.frame_buffer = deque(maxlen=self.buffer_size)
+        self.buffer_lock = threading.Lock()
+        
+        # Stats
+        self.frames_received = 0
+        self.frames_dropped = 0
+        self.last_stats_time = time.time()
         
     def run(self):
-        global frame_count
+        self.running = True
+        
+        # Start buffer consumer thread
+        buffer_thread = threading.Thread(target=self.consume_buffer, daemon=True)
+        buffer_thread.start()
         
         while self.running:
-            # Try to connect if not connected
-            if self.stream_capture.cap is None:
-                if self.stream_capture.should_reconnect():
-                    if not self.stream_capture.connect():
-                        self.status_update.emit(f"Connection failed (attempt {self.stream_capture.reconnect_attempts})")
-                        self.msleep(1000)
-                        continue
-                else:
-                    self.msleep(1000)
-                    continue
+            try:
+                self.connect_stream()
+            except Exception as e:
+                print(f"Stream error: {e}")
+                if self.running:
+                    self.status_update.emit("Connection lost - reconnecting...")
+                    time.sleep(2)
+                    
+    def connect_stream(self):
+        self.status_update.emit("Connecting...")
+        
+        # FFmpeg command to read stream and output raw video frames
+        ffmpeg_cmd = [
+            'ffmpeg',
+            '-i', self.url,
+            '-f', 'rawvideo',
+            '-pix_fmt', 'rgb24',
+            '-an',  # no audio
+            '-sn',  # no subtitles
+            '-vf', 'scale=800:600',  # scale to consistent size
+            '-r', '33',  # Set to 33 fps, should match consume_buffer
+            '-loglevel', 'error',
+            'pipe:1'
+        ]
+        
+        try:
+            self.process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=10**8
+            )
             
-            ret, frame = self.stream_capture.read()
+            self.status_update.emit("Connected")
+            self.reconnect_attempts = 0
             
-            if ret and frame is not None:
-                frame_count += 1
-                self.status_update.emit("Connected")
-                
-                # Push to detection queue (skip if full)
+            # Calculate frame size (width * height * 3 channels)
+            width, height = 800, 600
+            frame_size = width * height * 3
+
+            while self.running and self.process.poll() is None:
                 try:
-                    # Clear old frames from queue
-                    while detection_queue.qsize() > 1:
-                        try:
-                            detection_queue.get_nowait()
-                        except queue.Empty:
+                    # Read frame data
+                    raw_frame = self.process.stdout.read(frame_size)
+                    
+                    if not raw_frame or len(raw_frame) != frame_size:
+                        if self.running:
+                            print("Stream ended or incomplete frame")
                             break
-                    detection_queue.put_nowait(frame.copy())
-                except queue.Full:
-                    pass
-                
-                # Emit frame for UI
-                self.frame_ready.emit(frame)
-                
-                # Reset reconnection attempts on successful read
-                self.stream_capture.reconnect_attempts = 0
-                
+                        else:
+                            return
+                    
+                    # Convert raw bytes to numpy array
+                    frame = np.frombuffer(raw_frame, dtype=np.uint8)
+                    frame = frame.reshape((height, width, 3))
+                    
+                    # Convert RGB to BGR for consistency
+                    frame_bgr = frame[:, :, ::-1].copy()
+                    
+                    # Add frame to buffer
+                    with self.buffer_lock:
+                        self.frame_buffer.append(frame_bgr)
+                        
+                    # --- Re-added Console Logging Block ---
+                    self.frames_received += 1
+                    current_time = time.time()
+                    interval = 1.0
+                    if current_time - self.last_stats_time >= interval:
+                        input_fps = self.frames_received / (current_time - self.last_stats_time)
+                        print(f"Producer FPS: {input_fps:.1f}, Buffer size: {len(self.frame_buffer)}, Dropped: {self.frames_dropped}")
+                        self.frames_received = 0
+                        self.frames_dropped = 0  # Resetting dropped count for this log interval
+                        self.last_stats_time = current_time
+                    # --- End of Console Logging Block ---
+
+                except Exception as e:
+                    print(f"Frame processing error: {e}")
+                    break
+                    
+        except FileNotFoundError:
+            self.status_update.emit("Failed - FFmpeg not found")
+            print("FFmpeg not found. Please install FFmpeg and ensure it's in your PATH.")
+            return
+            
+        except Exception as e:
+            print(f"FFmpeg error: {e}")
+            
+        finally:
+            self.cleanup_process()
+            
+        # Handle reconnection
+        if self.running:
+            self.reconnect_attempts += 1
+            if self.reconnect_attempts < self.max_reconnect_attempts:
+                self.status_update.emit(f"Reconnecting... (attempt {self.reconnect_attempts}/{self.max_reconnect_attempts})")
+                time.sleep(min(2 ** self.reconnect_attempts, 10))  # Exponential backoff
             else:
-                self.status_update.emit("Connection lost - reconnecting...")
-                self.stream_capture.cap = None
-                self.msleep(1000)
+                self.status_update.emit("Failed - Max reconnection attempts reached")
+                self.running = False
     
+    def consume_buffer(self):
+        """Consume frames from buffer with dynamic frame dropping to prevent drift."""
+        target_fps = 60
+        frame_time = 1.0 / target_fps
+        
+        while self.running:
+            start_time = time.time()
+            
+            frame = None
+            
+            with self.buffer_lock:
+                # Get the number of frames currently in the buffer
+                buffer_level = len(self.frame_buffer)
+                
+                # If the buffer is building up, aggressively drop frames
+                if buffer_level > 2:
+                    while len(self.frame_buffer) > 1:
+                        self.frame_buffer.popleft()
+                        self.frames_dropped += 1
+                
+                # Grab the newest frame if available
+                if self.frame_buffer:
+                    frame = self.frame_buffer.popleft()
+            
+            if frame is not None:
+                self.frame_ready.emit(frame)
+            else:
+                # If the buffer is empty, yield briefly to avoid a tight loop
+                time.sleep(0.001)
+
+            # Maintain steady frame rate
+            elapsed = time.time() - start_time
+            sleep_time = frame_time - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+    def cleanup_process(self):
+        if self.process:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=3)
+            except:
+                try:
+                    self.process.kill()
+                    self.process.wait(timeout=1)
+                except:
+                    pass
+            finally:
+                self.process = None
+                
     def stop(self):
         self.running = False
-        self.stream_capture.release()
+        self.cleanup_process()
 
-class RailcamApp(QMainWindow):
+class StreamPlayer(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Train Detection Camera - Railstream Monitor")
+        self.setWindowTitle("FFmpeg Stream Player")
         self.setGeometry(100, 100, 1200, 800)
         
-        # Current detection state
-        self.current_box = None
-        self.current_center = None
-        self.current_train_present = False
+        # Frame tracking
+        self.display_frame_count = 0
+        self.last_display_time = time.time()
         
         self.init_ui()
-        self.init_threads()
+        self.init_video()
         
-        # FPS calculation
-        self.frame_count = 0
-        self.last_fps_time = time.time()
-        
-        # Status timer
+        # FPS timer
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.update_fps)
-        self.status_timer.start(1000)  # Update every second
+        self.status_timer.start(2000)
         
     def init_ui(self):
         central_widget = QWidget()
@@ -428,131 +235,125 @@ class RailcamApp(QMainWindow):
         self.video_label.setScaledContents(True)
         layout.addWidget(self.video_label)
         
-        # Status bar
-        status_layout = QHBoxLayout()
-        
-        # Train status
-        self.train_label = QLabel("Train: False")
+        # FPS counter
+        self.fps_label = QLabel("FPS: --")
         font = QFont()
         font.setPointSize(14)
         font.setBold(True)
-        self.train_label.setFont(font)
-        self.train_label.setStyleSheet("color: red;")
-        status_layout.addWidget(self.train_label)
-        
-        status_layout.addStretch()
-        
-        # FPS counter
-        self.fps_label = QLabel("FPS: 0.0")
         self.fps_label.setFont(font)
-        status_layout.addWidget(self.fps_label)
+        layout.addWidget(self.fps_label)
         
-        layout.addLayout(status_layout)
+        # Buffer status
+        self.buffer_label = QLabel("Buffer: --")
+        self.buffer_label.setStyleSheet("color: blue; font-size: 10px;")
+        layout.addWidget(self.buffer_label)
         
-    def init_threads(self):
-        # Video thread
+        # Dropped frames counter
+        self.dropped_label = QLabel("Dropped Frames: 0")
+        self.dropped_label.setStyleSheet("color: red; font-size: 10px;")
+        layout.addWidget(self.dropped_label)
+        
+        # FFmpeg info
+        self.info_label = QLabel("Using FFmpeg for stream processing with frame buffer")
+        self.info_label.setStyleSheet("color: gray; font-size: 10px;")
+        layout.addWidget(self.info_label)
+        
+    def init_video(self):
+        # Start video thread
         self.video_thread = VideoThread(stream_url)
         self.video_thread.frame_ready.connect(self.update_frame)
         self.video_thread.status_update.connect(self.update_connection_status)
         self.video_thread.start()
-        
-        # Detection thread
-        self.detection_thread = DetectionWorker()
-        self.detection_thread.detection_update.connect(self.update_detection)
-        self.detection_thread.start()
-        
-        # Slack thread
-        self.slack_thread = SlackWorker()
-        self.slack_thread.start()
     
     def update_connection_status(self, status):
         color_map = {
             "Connected": "green",
             "Connecting...": "orange",
             "Connection lost - reconnecting...": "red",
-            "Failed": "red"
+            "Failed": "red",
+            "Failed - FFmpeg not found": "red",
+            "Failed - Max reconnection attempts reached": "red"
         }
-        color = color_map.get(status, "orange")
+        
+        if "Reconnecting..." in status:
+            color = "orange"
+        else:
+            color = color_map.get(status, "orange")
+            
         self.connection_label.setText(f"Connection: {status}")
         self.connection_label.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 12px;")
     
-    def update_detection(self, train_present, box, center):
-        self.current_train_present = train_present
-        self.current_box = box
-        self.current_center = center
-        
-        # Update train status
-        if train_present:
-            self.train_label.setText("🚂 Train: DETECTED")
-            self.train_label.setStyleSheet("color: green; font-weight: bold; font-size: 14px;")
-        else:
-            self.train_label.setText("Train: Monitoring...")
-            self.train_label.setStyleSheet("color: #666; font-weight: bold; font-size: 14px;")
-    
     def update_frame(self, frame):
-        self.frame_count += 1
-        
-        # Draw detection overlay if present
-        display_frame = frame.copy()
-        if self.current_box is not None and self.current_center is not None:
-            x1, y1, x2, y2 = self.current_box
-            cv2.rectangle(display_frame, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 3)
-            cv2.circle(display_frame, self.current_center, 8, (0, 0, 255), -1)
-            cv2.putText(display_frame, "TRAIN DETECTED", (int(x1), int(y1) - 15),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 3)
-        
-        # Convert to Qt format efficiently
-        rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb_frame.shape
-        bytes_per_line = ch * w
-        
-        qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        pixmap = QPixmap.fromImage(qt_image)
-        
-        # Scale to fit label while maintaining aspect ratio
-        scaled_pixmap = pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.video_label.setPixmap(scaled_pixmap)
+        try:
+            self.display_frame_count += 1
+            
+            # Convert BGR to RGB for Qt
+            rgb_frame = frame[:, :, ::-1]
+            h, w, ch = rgb_frame.shape
+            bytes_per_line = ch * w
+            
+            # Ensure the array is contiguous and convert to bytes
+            rgb_frame = np.ascontiguousarray(rgb_frame)
+            
+            qt_image = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qt_image)
+            
+            # Scale to fit while maintaining aspect ratio
+            scaled_pixmap = pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.video_label.setPixmap(scaled_pixmap)
+            
+        except Exception as e:
+            print(f"Display error: {e}")
     
     def update_fps(self):
         current_time = time.time()
-        elapsed = current_time - self.last_fps_time
+        elapsed = current_time - self.last_display_time
         
-        if elapsed > 0:
-            fps = self.frame_count / elapsed
+        if elapsed > 0 and self.display_frame_count > 0:
+            fps = self.display_frame_count / elapsed
             self.fps_label.setText(f"FPS: {fps:.1f}")
             
-            # Reset counters every 10 seconds to keep FPS current
-            if elapsed > 10:
-                self.frame_count = 0
-                self.last_fps_time = current_time
+            # Update buffer status
+            if hasattr(self.video_thread, 'frame_buffer'):
+                buffer_size = len(self.video_thread.frame_buffer)
+                buffer_status = f"Buffer: {buffer_size}/{self.video_thread.buffer_size}"
+                if buffer_size < 3:
+                    color = "red"
+                elif buffer_size > self.video_thread.buffer_size * 0.7:
+                    color = "orange"
+                else:
+                    color = "green"
+                self.buffer_label.setText(buffer_status)
+                self.buffer_label.setStyleSheet(f"color: {color}; font-size: 10px;")
+                
+                # Update dropped frames count
+                dropped_frames = self.video_thread.frames_dropped
+                self.dropped_label.setText(f"Dropped Frames: {dropped_frames}")
+                # Reset the dropped frames counter for the next interval
+                self.video_thread.frames_dropped = 0
+            
+            # Reset counters
+            self.display_frame_count = 0
+            self.last_display_time = current_time
     
     def closeEvent(self, event):
         print("Shutting down...")
         
-        # Stop video thread
         if hasattr(self, 'video_thread'):
             self.video_thread.stop()
-            self.video_thread.wait(2000)
+            self.video_thread.wait(3000)
         
-        # Stop other threads
-        if hasattr(self, 'detection_thread'):
-            self.detection_thread.terminate()
-        if hasattr(self, 'slack_thread'):
-            self.slack_thread.terminate()
-        
-        cv2.destroyAllWindows()
         event.accept()
 
 if __name__ == '__main__':
     app = QApplication([])
     
-    # Set application properties
-    app.setApplicationName("Railstream Monitor")
-    app.setApplicationVersion("2.0")
+    app.setApplicationName("FFmpeg Stream Player")
+    app.setApplicationVersion("1.0")
     
-    window = RailcamApp()
-    window.show()
+    player = StreamPlayer()
+    player.show()
     
-    print("Application started - GUI should be visible")
+    print("FFmpeg stream player started")
     
     sys.exit(app.exec_())
