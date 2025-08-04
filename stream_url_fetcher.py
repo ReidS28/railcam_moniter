@@ -93,3 +93,6 @@ if __name__ == "__main__":
         print("M3U8 URL not found.")
 
 stream_url = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"#get_m3u8("https://railstream.net/camera-lineup/delaware-railcam")
+
+# Stream URL
+stream_url = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
