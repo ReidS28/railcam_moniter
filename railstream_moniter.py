@@ -8,7 +8,7 @@ from collections import deque
 stream_url = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
 
 class HLSStreamer:
-    def __init__(self, url, scale_factor=1.0, width=None, height=None):
+    def __init__(self, url, scale_factor=1.0, width=None, height=None, refresh_interval=300):
         self.url = url
         self.frame_buffer = deque(maxlen=60)  # Much larger buffer
         self.running = False
@@ -20,6 +20,10 @@ class HLSStreamer:
         self.target_width = width
         self.target_height = height
         self.original_size = None
+        
+        # Auto-refresh to stay current
+        self.refresh_interval = refresh_interval  # seconds (default 5 minutes)
+        self.last_refresh_time = time.time()
         
         # Buffer management
         self.min_buffer_size = 10  # Don't start displaying until we have this many frames
@@ -61,7 +65,14 @@ class HLSStreamer:
                 time.sleep(0.1)
                 continue
                 
-            ret, frame = self.cap.read()
+            try:
+                ret, frame = self.cap.read()
+            except cv.error as e:
+                # Catch the OpenCV C++ exception and treat it as a read failure
+                print(f"Caught OpenCV exception during read: {e}")
+                ret = False
+                frame = None
+            
             current_time = time.time()
             
             if ret:
@@ -75,35 +86,31 @@ class HLSStreamer:
                 # Adaptive delay based on buffer size
                 buffer_size = len(self.frame_buffer)
                 if buffer_size < self.min_buffer_size:
-                    # Buffer low, read as fast as possible
                     time.sleep(0.001)
                 elif buffer_size < self.target_buffer_size:
-                    # Buffer growing, moderate speed
                     time.sleep(0.01)
                 else:
-                    # Buffer good, slow down reading
                     time.sleep(0.03)
                     
             else:
                 consecutive_failures += 1
                 if consecutive_failures > 15:
                     print("Too many read failures, attempting reconnect...")
-                    self.reconnect()
+                    self.reconnect("Read failures")
                     consecutive_failures = 0
                 elif current_time - last_read_time > 5.0:
-                    # No successful reads for 5 seconds
                     print("No frames received for 5 seconds, reconnecting...")
-                    self.reconnect()
+                    self.reconnect("No frames timeout")
                     last_read_time = current_time
                 
                 time.sleep(0.1)
     
-    def reconnect(self):
+    def reconnect(self, reason="Manual reconnect"):
         """Reconnect to the stream"""
         if self.cap:
             self.cap.release()
         
-        print("Reconnecting...")
+        print(f"Reconnecting... ({reason})")
         time.sleep(2)
         
         self.cap = cv.VideoCapture(self.url)
@@ -113,6 +120,7 @@ class HLSStreamer:
             with self.buffer_lock:
                 self.frame_buffer.clear()
             self.buffering = True
+            self.last_refresh_time = time.time()  # Reset refresh timer
         else:
             print("Reconnection failed")
     
@@ -175,29 +183,7 @@ class HLSStreamer:
                 return frame_data[0], False  # Return frame, not buffering
             
             return None, False
-        """Get a frame from buffer with smart buffering"""
-        with self.buffer_lock:
-            buffer_size = len(self.frame_buffer)
-            
-            # Check if we should be buffering
-            if self.buffering and buffer_size < self.min_buffer_size:
-                return None, True  # Still buffering
-            elif self.buffering and buffer_size >= self.min_buffer_size:
-                self.buffering = False
-                print(f"Buffering complete, starting playback with {buffer_size} frames")
-            
-            # If buffer gets too low during playback, start buffering again
-            if not self.buffering and buffer_size < 3:
-                self.buffering = True
-                print("Buffer underrun, rebuffering...")
-                return None, True
-            
-            if buffer_size > 0:
-                frame_data = self.frame_buffer.popleft()
-                return frame_data[0], False  # Return frame, not buffering
-            
-            return None, False
-    
+
     def start(self):
         """Start the streaming"""
         if not self.connect():
@@ -209,15 +195,37 @@ class HLSStreamer:
         self.read_thread = threading.Thread(target=self.read_frames, daemon=True)
         self.read_thread.start()
         
-        print("Press 'q' to quit, 's' to show/hide stats")
+        print("Press 'q' to quit, 's' to show/hide stats, 'r' to refresh stream")
+        print(f"Auto-refresh enabled every {self.refresh_interval/60:.1f} minutes")
         print("Buffering initial frames...")
         
         # Main display loop with adaptive frame rate
         last_display_time = time.time()
         frame_interval = 1.0 / 25.0  # Start with 25 FPS
         
+        # Wait for the first frame to be ready and display it to ensure the window is created
+        while self.running:
+            frame, is_buffering = self.get_frame()
+            if frame is not None:
+                # Scale the frame and show it once to create the window
+                frame = self.scale_frame(frame)
+                cv.imshow('HLS Stream', frame)
+                cv.waitKey(1) # a small delay to allow the window to render
+                break
+            else:
+                print("Waiting for first frame...")
+                time.sleep(0.5)
+
+        if not self.running: # Check if the program was stopped while waiting for the first frame
+            return
+
         while self.running:
             current_time = time.time()
+            
+            # Check if it's time for periodic refresh
+            if current_time - self.last_refresh_time > self.refresh_interval:
+                print(f"Periodic refresh after {self.refresh_interval/60:.1f} minutes to stay current")
+                self.reconnect("Periodic refresh")
             
             # Get frame
             frame, is_buffering = self.get_frame()
@@ -235,8 +243,6 @@ class HLSStreamer:
                     read_fps = self.frames_read / elapsed if elapsed > 0 else 0
                     
                     buffer_size = len(self.frame_buffer)
-                    if self.show_stats:
-                        print(f"Display FPS: {display_fps:.1f}, Read FPS: {read_fps:.1f}, Buffer: {buffer_size}")
                     
                     # Adjust frame rate based on buffer health
                     if buffer_size > self.target_buffer_size:
@@ -254,28 +260,36 @@ class HLSStreamer:
                     display_fps = self.frames_displayed / elapsed if elapsed > 0 else 0
                     buffer_size = len(self.frame_buffer)
                     
-                    # Scale text size based on frame size
-                    text_scale = max(0.5, min(1.0, frame.shape[1] / 1280))  # Scale between 0.5 and 1.0
-                    text_thickness = max(1, int(2 * text_scale))
+                    # Use a fixed font scale and position based on the scaled frame's dimensions
+                    text_scale = 1.0  # Keep a consistent scale for readability
+                    text_thickness = 2
                     
-                    cv.putText(frame, f"FPS: {display_fps:.1f}", (10, int(30 * text_scale)),
-                               cv.FONT_HERSHEY_SIMPLEX, text_scale, (0, 255, 0), text_thickness)
-                    cv.putText(frame, f"Buffer: {buffer_size}", (10, int(70 * text_scale)),
-                               cv.FONT_HERSHEY_SIMPLEX, text_scale, (0, 255, 0), text_thickness)
+                    # Position the text from the bottom of the frame
+                    bottom_y = frame.shape[0] - 10  # Start 10 pixels from the bottom
                     
-                    # Show original and current size
+                    # Draw text, moving up for each line
+                    cv.putText(frame, f"FPS: {display_fps:.1f}", (10, bottom_y),
+                                cv.FONT_HERSHEY_SIMPLEX, text_scale, (0, 255, 0), text_thickness)
+                    
+                    # Get text sizes to position them correctly
+                    (fps_w, fps_h), _ = cv.getTextSize(f"FPS: {display_fps:.1f}", cv.FONT_HERSHEY_SIMPLEX, text_scale, text_thickness)
+                    (buffer_w, buffer_h), _ = cv.getTextSize(f"Buffer: {buffer_size}", cv.FONT_HERSHEY_SIMPLEX, text_scale, text_thickness)
+                    
+                    cv.putText(frame, f"Buffer: {buffer_size}", (10, bottom_y - fps_h - 10),
+                                cv.FONT_HERSHEY_SIMPLEX, text_scale, (0, 255, 0), text_thickness)
+                    
                     if self.original_size:
                         size_text = f"Size: {self.original_size[0]}x{self.original_size[1]} -> {frame.shape[1]}x{frame.shape[0]}"
-                        cv.putText(frame, size_text, (10, int(110 * text_scale)),
-                                   cv.FONT_HERSHEY_SIMPLEX, text_scale * 0.6, (255, 255, 255), text_thickness)
+                        (size_w, size_h), _ = cv.getTextSize(size_text, cv.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                        cv.putText(frame, size_text, (10, bottom_y - fps_h - buffer_h - 20),
+                                    cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                     
-                    # Show buffering status
                     if is_buffering:
-                        cv.putText(frame, "BUFFERING...", (10, int(150 * text_scale)),
-                                   cv.FONT_HERSHEY_SIMPLEX, text_scale, (0, 0, 255), text_thickness)
-                    
-                    cv.putText(frame, "Press 'q' to quit, 's' for stats", (10, int(190 * text_scale)),
-                               cv.FONT_HERSHEY_SIMPLEX, text_scale * 0.6, (255, 255, 255), text_thickness)
+                        buffering_text = "BUFFERING..."
+                        (buff_w, buff_h), _ = cv.getTextSize(buffering_text, cv.FONT_HERSHEY_SIMPLEX, text_scale, text_thickness)
+                        # Position it at the top of the group of text, with a small offset
+                        cv.putText(frame, buffering_text, (10, bottom_y - fps_h - buffer_h - size_h - 30),
+                                    cv.FONT_HERSHEY_SIMPLEX, text_scale, (0, 0, 255), text_thickness)
                 
                 # Display frame
                 cv.imshow('HLS Stream', frame)
@@ -290,20 +304,23 @@ class HLSStreamer:
                 # Show buffering message less frequently
                 if int(current_time) % 2 == 0:  # Every 2 seconds
                     buffer_size = len(self.frame_buffer)
-                    print(f"Buffering... ({buffer_size}/{self.min_buffer_size} frames)")
                 time.sleep(0.1)
             
             else:
                 # No frame available and not buffering
                 time.sleep(0.01)
             
-            # Handle key presses
+            # Handle key presses AND window close event
             key = cv.waitKey(1) & 0xFF
-            if key == ord('q'):
+            
+            if key == ord('q') or cv.getWindowProperty('HLS Stream', cv.WND_PROP_VISIBLE) < 1:
                 break
             elif key == ord('s'):
                 self.show_stats = not self.show_stats
                 print(f"Stats display: {'ON' if self.show_stats else 'OFF'}")
+            elif key == ord('r'):
+                print("Manual refresh requested")
+                self.reconnect("Manual refresh")
         
         self.stop()
     
@@ -323,22 +340,9 @@ class HLSStreamer:
 
 # Usage examples
 if __name__ == "__main__":
-    # Different scaling options - uncomment the one you want:
     
-    # Option 1: Scale by factor (0.5 = half size, 2.0 = double size)
-    streamer = HLSStreamer(stream_url, scale_factor=0.5)
-    
-    # Option 2: Set specific width (height auto-calculated to maintain aspect ratio)
-    # streamer = HLSStreamer(stream_url, width=640)
-    
-    # Option 3: Set specific height (width auto-calculated)
-    # streamer = HLSStreamer(stream_url, height=480)
-    
-    # Option 4: Set both width and height (may distort aspect ratio)
-    # streamer = HLSStreamer(stream_url, width=800, height=600)
-    
-    # Option 5: No scaling (original size)
-    # streamer = HLSStreamer(stream_url)
+    # Scale by factor with 20-minute refresh (0.5 = half size)
+    streamer = HLSStreamer(stream_url, scale_factor=0.5, refresh_interval=1200)
     
     try:
         streamer.start()
