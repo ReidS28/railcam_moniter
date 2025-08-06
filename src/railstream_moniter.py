@@ -1,15 +1,18 @@
-import numpy as np
-import cv2 as cv
 import time
-import threading
 import asyncio
+import threading
+import cv2 as cv
+import numpy as np
 from ultralytics import YOLO
 from collections import deque
+from datetime import datetime
+from slack_message import handle_train_detected
 
 # region --- CONSTANTS ---
 # Stream configuration
 STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
-STREAM_URL = "2025-07-31 14-40-10_loop.mp4"
+#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CRS_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
+#STREAM_URL = "2025-07-31 14-40-10_loop.mp4"
 
 # Display and performance settings
 SCALE_FACTOR = 0.5
@@ -20,7 +23,7 @@ SHOW_STATS = True
 # Buffering and refresh
 REFRESH_INTERVAL_SECONDS = 300
 MIN_BUFFER_SIZE = 10
-TARGET_BUFFER_SIZE = 20
+TARGET_BUFFER_SIZE = 40
 BUFFER_MAXLEN = 60
 
 # Detection settings
@@ -41,6 +44,13 @@ STATS_COLOR_BUFFER = (0, 255, 0)
 STATS_COLOR_SIZE = (255, 255, 255)
 STATS_COLOR_DETECTION = (255, 255, 0)
 STATS_COLOR_BUFFERING = (0, 0, 255)
+# endregion
+
+# region ---HELPER FUNCTIONS ---
+def print_time(message):
+    """Prints a message with a timestamp."""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+    print(f"[{timestamp}] {message}")
 # endregion
 
 class HLSStreamer:
@@ -117,13 +127,14 @@ class HLSStreamer:
                 
                 if train_in_frame:
                     if not self.train_detected:
-                        print(f"train first detected | max confidence: {max(train_confidences)}")
-                        self.train_detected = True
+                        print_time("train detected")
+                        handle_train_detected(frame)
+                    self.train_detected = True
                     self.last_train_detected_time = time.time()
                 elif (time.time() - self.last_train_detected_time) > DETECTION_TIMEOUT:
                     if self.train_detected:
                         self.train_detected = False
-                        print("train not detected")
+                        print_time("train not detected")
                         
             except Exception as e:
                 return f"Detection error: {e}"
@@ -132,7 +143,7 @@ class HLSStreamer:
     
     async def detection_worker(self):
         """Async worker that processes detection frames independently"""
-        print("Starting async detection worker...")
+        print_time("Starting async detection worker...")
         
         while self.running:
             try:
@@ -144,10 +155,10 @@ class HLSStreamer:
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                print(f"Detection error: {e}")
+                print_time(f"Detection error: {e}")
                 await asyncio.sleep(0.1)
         
-        print("Async detection worker stopped")
+        print_time("Async detection worker stopped")
 
     def start_async_detection(self):
         """Start the async detection loop in a separate thread"""
@@ -160,7 +171,7 @@ class HLSStreamer:
             try:
                 self.detection_loop.run_until_complete(self.detection_task)
             except Exception as e:
-                print(f"Async detection loop error: {e}")
+                print_time(f"Async detection loop error: {e}")
             finally:
                 self.detection_loop.close()
         
@@ -181,16 +192,16 @@ class HLSStreamer:
     
     def connect(self):
         """Connect to the stream"""
-        print("Connecting to stream...")
+        print_time("Connecting to stream...")
         self.cap = cv.VideoCapture(self.url)
         
         if not self.cap.isOpened():
-            print("Cannot open stream")
+            print_time("Cannot open stream")
             return False
             
         self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
         
-        print("Stream opened successfully!")
+        print_time("Stream opened successfully!")
         return True
     
     def read_frames(self):
@@ -206,7 +217,7 @@ class HLSStreamer:
             try:
                 ret, frame = self.cap.read()
             except cv.error as e:
-                print(f"Caught OpenCV exception during read: {e}")
+                print_time(f"Caught OpenCV exception during read: {e}")
                 ret = False
                 frame = None
             
@@ -231,34 +242,62 @@ class HLSStreamer:
             else:
                 consecutive_failures += 1
                 if consecutive_failures > 15:
-                    print("Too many read failures, attempting reconnect...")
+                    print_time("Too many read failures, attempting reconnect...")
                     self.reconnect("Read failures")
                     consecutive_failures = 0
                 elif current_time - last_read_time > 5.0:
-                    print("No frames received for 5 seconds, reconnecting...")
+                    print_time("No frames received for 5 seconds, reconnecting...")
                     self.reconnect("No frames timeout")
                     last_read_time = current_time
                 
                 time.sleep(0.1)
     
     def reconnect(self, reason="Manual reconnect"):
-        """Reconnect to the stream"""
-        if self.cap:
-            self.cap.release()
+        """Reconnect to the stream with better error handling"""
+        # Prevent multiple simultaneous reconnections
+        if hasattr(self, '_reconnecting') and self._reconnecting:
+            print_time(f"Reconnection already in progress, skipping ({reason})")
+            return False
         
-        print(f"Reconnecting... ({reason})")
-        time.sleep(2)
+        self._reconnecting = True
         
-        self.cap = cv.VideoCapture(self.url)
-        if self.cap.isOpened():
-            self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
-            print("Reconnected successfully")
-            with self.buffer_lock:
-                self.frame_buffer.clear()
-            self.buffering = True
-            self.last_refresh_time = time.time()
-        else:
-            print("Reconnection failed")
+        try:
+            if self.cap:
+                self.cap.release()
+            
+            print_time(f"Reconnecting... ({reason})")
+            time.sleep(2)
+            
+            # Try reconnection multiple times
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                print_time(f"Connection attempt {attempt + 1}/{max_attempts}")
+                
+                self.cap = cv.VideoCapture(self.url)
+                
+                if self.cap.isOpened():
+                    self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
+                    print_time("Reconnected successfully")
+                    
+                    with self.buffer_lock:
+                        self.frame_buffer.clear()
+                    self.buffering = True
+                    self.last_refresh_time = time.time()
+                    
+                    self._reconnecting = False
+                    return True
+                else:
+                    print_time(f"Connection attempt {attempt + 1} failed")
+                    time.sleep(3)  # Wait longer between attempts
+            
+            print_time("All reconnection attempts failed")
+            self._reconnecting = False
+            return False
+            
+        except Exception as e:
+            print_time(f"Exception during reconnection: {e}")
+            self._reconnecting = False
+            return False
     
     def scale_frame(self, frame):
         """Scale frame according to settings"""
@@ -297,11 +336,11 @@ class HLSStreamer:
                 return None, True
             elif self.buffering and buffer_size >= self.min_buffer_size:
                 self.buffering = False
-                print(f"Buffering complete, starting playback with {buffer_size} frames")
+                print_time(f"Buffering complete, starting playback with {buffer_size} frames")
             
             if not self.buffering and buffer_size < 3:
                 self.buffering = True
-                print("Buffer underrun, rebuffering...")
+                print_time("Buffer underrun, rebuffering...")
                 return None, True
             
             if buffer_size > 0:
@@ -322,10 +361,10 @@ class HLSStreamer:
         
         self.start_async_detection()
         
-        print("Press 'q' to quit, 's' to show/hide stats, 'r' to refresh stream, 'd' to toggle detection")
-        print(f"Auto-refresh enabled every {self.refresh_interval/60:.1f} minutes")
-        print(f"Async frame detection enabled every {self.detection_interval} seconds")
-        print("Buffering initial frames...")
+        print_time("Press 'q' to quit, 's' to show/hide stats, 'r' to refresh stream, 'd' to toggle detection")
+        print_time(f"Auto-refresh enabled every {self.refresh_interval/60:.1f} minutes")
+        print_time(f"Async frame detection enabled every {self.detection_interval} seconds")
+        print_time("Buffering initial frames...")
         
         last_display_time = time.time()
         frame_interval = 1.0 / 25.0
@@ -338,7 +377,7 @@ class HLSStreamer:
                 cv.waitKey(1)
                 break
             else:
-                print("Waiting for first frame...")
+                print_time("Waiting for first frame...")
                 time.sleep(0.5)
 
         if not self.running:
@@ -348,7 +387,7 @@ class HLSStreamer:
             current_time = time.time()
             
             if current_time - self.last_refresh_time > self.refresh_interval:
-                print(f"Periodic refresh after {self.refresh_interval/60:.1f} minutes to stay current")
+                print_time(f"Periodic refresh after {self.refresh_interval/60:.1f} minutes to stay current")
                 self.reconnect("Periodic refresh")
             
             frame, is_buffering = self.get_frame()
@@ -429,19 +468,19 @@ class HLSStreamer:
                 break
             elif key == ord('s'):
                 self.show_stats = not self.show_stats
-                print(f"Stats display: {'ON' if self.show_stats else 'OFF'}")
+                print_time(f"Stats display: {'ON' if self.show_stats else 'OFF'}")
             elif key == ord('r'):
-                print("Manual refresh requested")
+                print_time("Manual refresh requested")
                 self.reconnect("Manual refresh")
             elif key == ord('d'):
                 self.detection_enabled = not self.detection_enabled
-                print(f"Frame detection: {'ON' if self.detection_enabled else 'OFF'}")
+                print_time(f"Frame detection: {'ON' if self.detection_enabled else 'OFF'}")
         
         self.stop()
     
     def stop(self):
         """Stop streaming and cleanup"""
-        print("Stopping stream...")
+        print_time("Stopping stream...")
         self.running = False
         
         if self.detection_task and self.detection_loop and not self.detection_loop.is_closed():
@@ -464,7 +503,7 @@ class HLSStreamer:
             self.cap.release()
         
         cv.destroyAllWindows()
-        print("Stream closed.")
+        print_time("Stream closed.")
     
     async def _cancel_async_detection(self):
         """Helper to cancel async detection task"""
@@ -474,21 +513,13 @@ class HLSStreamer:
                 await self.detection_task
             except asyncio.CancelledError:
                 pass
-
-# Usage - Always async, super simple!
+        
 if __name__ == "__main__":
     
-    # Simple usage - detection every 0.5 seconds (2x per second)
     streamer = HLSStreamer(STREAM_URL, scale_factor=SCALE_FACTOR, detection_interval=DETECTION_INTERVAL)
-    
-    # High frequency detection - no performance impact!
-    # streamer = HLSStreamer(STREAM_URL, detection_interval=0.1)  # 10x per second
-    
-    # Lower frequency detection
-    # streamer = HLSStreamer(STREAM_URL, detection_interval=2.0)  # every 2 seconds
     
     try:
         streamer.start()
     except KeyboardInterrupt:
-        print("\nInterrupted by user")
+        print_time("\nInterrupted by user")
         streamer.stop()
