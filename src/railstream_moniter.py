@@ -25,6 +25,7 @@ REFRESH_INTERVAL_SECONDS = 300
 MIN_BUFFER_SIZE = 10
 TARGET_BUFFER_SIZE = 40
 BUFFER_MAXLEN = 60
+DISPLAY_FPS = 20  # New: A stable target display FPS
 
 # Detection settings
 DETECTION_INTERVAL = 0.5
@@ -231,13 +232,10 @@ class HLSStreamer:
                 consecutive_failures = 0
                 last_read_time = current_time
                 
+                # Dynamic sleep time based on buffer fullness
                 buffer_size = len(self.frame_buffer)
-                if buffer_size < self.min_buffer_size:
-                    time.sleep(0.001)
-                elif buffer_size < self.target_buffer_size:
-                    time.sleep(0.01)
-                else:
-                    time.sleep(0.03)
+                sleep_time = max(0.001, (buffer_size / BUFFER_MAXLEN) * 0.05)
+                time.sleep(sleep_time)
                     
             else:
                 consecutive_failures += 1
@@ -345,7 +343,7 @@ class HLSStreamer:
             
             if buffer_size > 0:
                 frame_data = self.frame_buffer.popleft()
-                return frame_data[0], False
+                return frame_data[0], False # Return frame and buffering status
             
             return None, False
 
@@ -366,9 +364,7 @@ class HLSStreamer:
         print_time(f"Async frame detection enabled every {self.detection_interval} seconds")
         print_time("Buffering initial frames...")
         
-        last_display_time = time.time()
-        frame_interval = 1.0 / 25.0
-        
+        # Wait for the first frame to be available
         while self.running:
             frame, is_buffering = self.get_frame()
             if frame is not None:
@@ -382,6 +378,9 @@ class HLSStreamer:
 
         if not self.running:
             return
+            
+        frame_interval = 1.0 / DISPLAY_FPS
+        last_display_time = time.time()
 
         while self.running:
             current_time = time.time()
@@ -401,16 +400,6 @@ class HLSStreamer:
                     self.last_detection_time = current_time
                 
                 self.frames_displayed += 1
-                
-                if current_time - self.last_stats_time >= 1.0:
-                    buffer_size = len(self.frame_buffer)
-                    if buffer_size > self.target_buffer_size:
-                        frame_interval = 1.0 / 30.0
-                    elif buffer_size < 10:
-                        frame_interval = 1.0 / 20.0
-                    else:
-                        frame_interval = 1.0 / 25.0
-                    self.last_stats_time = current_time
                 
                 if self.show_stats:
                     elapsed = current_time - self.start_time
@@ -449,7 +438,8 @@ class HLSStreamer:
                 
                 cv.imshow('HLS Stream', frame)
                 
-                elapsed_since_display = current_time - last_display_time
+                # Consistent FPS limiter
+                elapsed_since_display = time.time() - last_display_time
                 if elapsed_since_display < frame_interval:
                     time.sleep(frame_interval - elapsed_since_display)
                 last_display_time = time.time()
