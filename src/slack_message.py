@@ -110,6 +110,7 @@ def handle_train_detected(frame):
 
     # Use the new function that takes a frame directly
     success = send_slack_photo(frame, message, user_id=user_id)
+    #success = False
     print("-----------------------------------")
     print(f"Message: {message}")
     print(f"Image Success: {success}")

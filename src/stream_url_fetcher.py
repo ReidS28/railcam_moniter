@@ -92,7 +92,9 @@ if __name__ == "__main__":
     else:
         print("M3U8 URL not found.")
 
-stream_url = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"#get_m3u8("https://railstream.net/camera-lineup/delaware-railcam")
-
-# Stream URL
-stream_url = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
+#STREAM_URL = get_m3u8("https://railstream.net/camera-lineup/delaware-railcam")
+#STREAM_URL = get_m3u8("https://railstream.net/live-cameras/item/fostoria-oh-east-guest")
+STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
+#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/FOS_CAM02/playlist_dvr_timeshift-0-1800.m3u8"
+#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CRS_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
+#STREAM_URL = "2025-07-31 14-40-10_loop.mp4"

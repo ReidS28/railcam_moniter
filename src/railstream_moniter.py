@@ -7,10 +7,14 @@ from ultralytics import YOLO
 from collections import deque
 from datetime import datetime
 from slack_message import handle_train_detected
+from stream_url_fetcher import get_m3u8
 
 # region --- CONSTANTS ---
 # Stream configuration
-STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
+#STREAM_URL = get_m3u8("https://railstream.net/camera-lineup/delaware-railcam")
+#STREAM_URL = get_m3u8("https://railstream.net/live-cameras/item/fostoria-oh-east-guest")
+#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
+STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/FOS_CAM02/playlist_dvr_timeshift-0-1800.m3u8"
 #STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CRS_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
 #STREAM_URL = "2025-07-31 14-40-10_loop.mp4"
 
@@ -25,14 +29,15 @@ REFRESH_INTERVAL_SECONDS = 300
 MIN_BUFFER_SIZE = 10
 TARGET_BUFFER_SIZE = 40
 BUFFER_MAXLEN = 60
-DISPLAY_FPS = 20  # New: A stable target display FPS
+DISPLAY_FPS = 30  # New: A stable target display FPS
 
 # Detection settings
-DETECTION_INTERVAL = 0.5
+DETECTION_INTERVAL = 0.25
 DETECTION_ENABLED = True
-DETECTION_MODEL_PATH = 'yolov8n.pt'
+DETECTION_MODEL_PATH = 'yolov8s.pt'
 DETECTION_CLASS_ID = 6
 DETECTION_CONFIDENCE_THRESHOLD = 0.4
+DETECTION_MIN_FRAMES = 4
 DETECTION_TIMEOUT = 5
 
 # UI and control
@@ -45,6 +50,7 @@ STATS_COLOR_BUFFER = (0, 255, 0)
 STATS_COLOR_SIZE = (255, 255, 255)
 STATS_COLOR_DETECTION = (255, 255, 0)
 STATS_COLOR_BUFFERING = (0, 0, 255)
+BOUNDING_BOX_WEIGHT = 2
 # endregion
 
 # region ---HELPER FUNCTIONS ---
@@ -94,8 +100,14 @@ class HLSStreamer:
         self.model = YOLO(DETECTION_MODEL_PATH)
         
         # detection states
+        self.train_detected_frames = 0
         self.train_detected = False
         self.last_train_detected_time = time.time()
+        self.train_detected_confedence = 0
+
+        # box status
+        self.boxColor = None
+        self.boxCoordinates = None
         
         # Threading
         self.read_thread = None
@@ -111,9 +123,7 @@ class HLSStreamer:
         def analyze_frame():
             try:
                 results = self.model(frame, verbose=False)
-                
-                train_in_frame = False
-                train_confidences = []
+                train_detections = []
                 
                 for result in results:
                     boxes = result.boxes
@@ -123,24 +133,50 @@ class HLSStreamer:
                             confidence = float(box.conf.item())
                             
                             if class_id == DETECTION_CLASS_ID and confidence > DETECTION_CONFIDENCE_THRESHOLD:
-                                train_in_frame = True
-                                train_confidences.append(confidence)
-                
-                if train_in_frame:
-                    if not self.train_detected:
+                                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                                train_detections.append({'box': (int(x1), int(y1), int(x2), int(y2)), 'confidence': confidence})
+
+                if train_detections:
+                    self.train_detected_frames += 1
+                    self.last_train_detected_time = time.time()
+
+                    best_detection = max(train_detections, key=lambda x: x['confidence'])
+                    self.boxCoordinates = best_detection['box']
+                    self.boxColor = (255, 255, 0) # Teal
+                    self.train_detected_confedence = best_detection['confidence']
+
+                    if not self.train_detected and self.train_detected_frames >= DETECTION_MIN_FRAMES:
                         print_time("train detected")
                         handle_train_detected(frame)
-                    self.train_detected = True
-                    self.last_train_detected_time = time.time()
-                elif (time.time() - self.last_train_detected_time) > DETECTION_TIMEOUT:
+                        self.train_detected = True
+
                     if self.train_detected:
-                        self.train_detected = False
-                        print_time("train not detected")
-                        
+                        self.boxColor = (0, 255, 0)  # Green
+                    
+
+                else:
+                    self.train_detected_frames = 0
+                    self.train_detected_confedence = 0
+
+                    if self.train_detected:
+                        self.boxColor = (0, 255, 255) # Yellow
+
+                    if (time.time() - self.last_train_detected_time) > DETECTION_TIMEOUT:
+                        self.boxCoordinates = None
+                        self.boxColor = None
+
+                        if self.train_detected:
+                            self.train_detected = False
+                            print_time("train not detected")
+                
+                return train_detections
+            
             except Exception as e:
-                return f"Detection error: {e}"
+                print_time(f"Detection error: {e}")
+                return []
         
-        result = await loop.run_in_executor(None, analyze_frame)
+        detections = await loop.run_in_executor(None, analyze_frame)
+        return detections # Return the results from the analysis
     
     async def detection_worker(self):
         """Async worker that processes detection frames independently"""
@@ -347,6 +383,28 @@ class HLSStreamer:
             
             return None, False
 
+    def update_bounding_box(self, image):
+        """
+        Draws a single bounding box on the image based on self variables.
+
+        Args:
+            image (numpy.ndarray): The image to draw on.
+        """
+        if self.boxColor is None or self.boxCoordinates is None:
+            return
+
+        x1, y1, x2, y2 = self.boxCoordinates
+
+        cv.rectangle(image, (x1, y1), (x2, y2), self.boxColor, BOUNDING_BOX_WEIGHT)
+
+        label = f"Train: {self.train_detected_confedence:.2f}"
+
+        (text_width, text_height), baseline = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+
+        cv.rectangle(image, (x1, y1 - text_height - baseline), (x1 + text_width, y1), self.boxColor, -1)
+
+        cv.putText(image, label, (x1, y1 - baseline), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
     def start(self):
         """Start the streaming"""
         if not self.connect():
@@ -400,6 +458,8 @@ class HLSStreamer:
                     self.last_detection_time = current_time
                 
                 self.frames_displayed += 1
+
+                self.update_bounding_box(frame)
                 
                 if self.show_stats:
                     elapsed = current_time - self.start_time
