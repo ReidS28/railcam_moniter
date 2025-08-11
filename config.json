@@ -1,0 +1,80 @@
+{
+	"general_settings": {
+		"stream_settings": {
+			"streams": [
+				{
+					"name": "CPT_CAM01",
+					"url": "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8",
+					"left": 1,
+					"right": 2
+				},
+				{
+					"name": "FOS_CAM02",
+					"url": "https://edge01.railstream.net/Live_Web_Free/FOS_CAM02/playlist_dvr_timeshift-0-1800.m3u8",
+					"left": 3,
+					"right": 4
+				},
+				{
+					"name": "CRS_CAM01",
+					"url": "https://edge01.railstream.net/Live_Web_Free/CRS_CAM01/playlist_dvr_timeshift-0-1800.m3u8",
+					"left": 5,
+					"right": 6
+				},
+				{
+					"name": "LOOP_MP4",
+					"url": "2025-07-31 14-40-10_loop.mp4",
+					"left": 7,
+					"right": 8
+				}
+			],
+			"stream_name": "CPT_CAM01"
+		},
+		"slack_settings": {
+			"slack_token": "xoxb-8678201375584-9289783952051-BanAx2McG4hrWrgf3nCg0D1Z",
+			"slack_user_id": "U08KY5XBKJ4"
+		}
+	},
+	"advanced_settings": {
+		"display_and_performance_settings": {
+			"scale_factor": 0.5,
+			"target_width": null,
+			"target_height": null,
+			"show_stats": true
+		},
+		"buffering_and_refresh": {
+			"refresh_interval_seconds": 1200,
+			"min_buffer_size": 10,
+			"target_buffer_size": 40,
+			"buffer_maxlen": 60,
+			"display_fps": 30
+		},
+		"detection_settings": {
+			"detection_interval": 0.25,
+			"detection_enabled": true,
+			"detection_model_path": "yolov8m.pt",
+			"detection_class_id": 6,
+			"start_detection_confidence_threshold": 0.4,
+			"continuous_detection_confidence_threshold": 0.2,
+			"detection_min_frames": 4,
+			"detection_timeout": 5
+		},
+		"ui_and_control": {
+			"waitkey_delay_ms": 1,
+			"font_hershey": "cv.FONT_HERSHEY_SIMPLEX",
+			"stats_font_scale": 1.0,
+			"stats_font_thickness": 2,
+			"stats_color_fps": [0, 255, 0],
+			"stats_color_buffer": [0, 255, 0],
+			"stats_color_size": [255, 255, 255],
+			"stats_color_detection": [255, 255, 0],
+			"stats_color_buffering": [0, 0, 255],
+			"bounding_box_weight": 2
+		},
+		"playback_settings": {
+			"max_playback_fps": 30.0,
+			"min_playback_fps": 1.0,
+			"buffer_critical": 5,
+			"buffer_optimal": 30
+		}
+	}
+}

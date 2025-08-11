@@ -5,3 +5,5 @@
 
 yolovenv/
 yolov8s.pt
+yolov8m.pt
+detections/train_detection_20250808_153732.mp4

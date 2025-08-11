@@ -1,63 +1,83 @@
+import os
 import time
+import json
 import asyncio
 import threading
 import cv2 as cv
 import numpy as np
+from pathlib import Path
 from ultralytics import YOLO
 from collections import deque
 from datetime import datetime
-from slack_message import handle_train_detected
 from stream_url_fetcher import get_m3u8
+from utils import print_time, load_config
+from handle_train import handle_train_detected
 
 # region --- CONSTANTS ---
+CONFIG = load_config('config.json')
+
 # Stream configuration
-#STREAM_URL = get_m3u8("https://railstream.net/camera-lineup/delaware-railcam")
-#STREAM_URL = get_m3u8("https://railstream.net/live-cameras/item/fostoria-oh-east-guest")
-#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
-STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/FOS_CAM02/playlist_dvr_timeshift-0-1800.m3u8"
-#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CRS_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
-#STREAM_URL = "2025-07-31 14-40-10_loop.mp4"
+streams = CONFIG['general_settings']['stream_settings']['streams']
+stream_name = CONFIG['general_settings']['stream_settings']['stream_name']
+stream_config = None
+for stream in streams:
+    if stream['name'] == stream_name:
+        stream_config = stream
+STREAM_URL = stream_config['url']
+LEFT = stream_config['left']
+RIGHT = stream_config['right']
 
 # Display and performance settings
-SCALE_FACTOR = 0.5
-TARGET_WIDTH = None
-TARGET_HEIGHT = None
-SHOW_STATS = True
+SCALE_FACTOR = CONFIG['advanced_settings']['display_and_performance_settings']['scale_factor']
+TARGET_WIDTH = CONFIG['advanced_settings']['display_and_performance_settings']['target_width']
+TARGET_HEIGHT = CONFIG['advanced_settings']['display_and_performance_settings']['target_height']
+SHOW_STATS = CONFIG['advanced_settings']['display_and_performance_settings']['show_stats']
 
 # Buffering and refresh
-REFRESH_INTERVAL_SECONDS = 300
-MIN_BUFFER_SIZE = 10
-TARGET_BUFFER_SIZE = 40
-BUFFER_MAXLEN = 60
-DISPLAY_FPS = 30  # New: A stable target display FPS
+REFRESH_INTERVAL_SECONDS = CONFIG['advanced_settings']['buffering_and_refresh']['refresh_interval_seconds']
+MIN_BUFFER_SIZE = CONFIG['advanced_settings']['buffering_and_refresh']['min_buffer_size']
+TARGET_BUFFER_SIZE = CONFIG['advanced_settings']['buffering_and_refresh']['target_buffer_size']
+BUFFER_MAXLEN = CONFIG['advanced_settings']['buffering_and_refresh']['buffer_maxlen']
+DISPLAY_FPS = CONFIG['advanced_settings']['buffering_and_refresh']['display_fps']
 
 # Detection settings
-DETECTION_INTERVAL = 0.25
-DETECTION_ENABLED = True
-DETECTION_MODEL_PATH = 'yolov8s.pt'
-DETECTION_CLASS_ID = 6
-DETECTION_CONFIDENCE_THRESHOLD = 0.4
-DETECTION_MIN_FRAMES = 4
-DETECTION_TIMEOUT = 5
+DETECTION_INTERVAL = CONFIG['advanced_settings']['detection_settings']['detection_interval']
+DETECTION_ENABLED = CONFIG['advanced_settings']['detection_settings']['detection_enabled']
+DETECTION_MODEL_PATH = CONFIG['advanced_settings']['detection_settings']['detection_model_path']
+DETECTION_CLASS_ID = CONFIG['advanced_settings']['detection_settings']['detection_class_id']
+START_DETECTION_CONFIDENCE_THRESHOLD = CONFIG['advanced_settings']['detection_settings']['start_detection_confidence_threshold']
+CONTINUOUS_DETECTION_CONFIDENCE_THRESHOLD = CONFIG['advanced_settings']['detection_settings']['continuous_detection_confidence_threshold']
+DETECTION_MIN_FRAMES = CONFIG['advanced_settings']['detection_settings']['detection_min_frames']
+DETECTION_TIMEOUT = CONFIG['advanced_settings']['detection_settings']['detection_timeout']
 
 # UI and control
-WAITKEY_DELAY_MS = 1
-FONT_HERSHEY = cv.FONT_HERSHEY_SIMPLEX
-STATS_FONT_SCALE = 1.0
-STATS_FONT_THICKNESS = 2
-STATS_COLOR_FPS = (0, 255, 0)
-STATS_COLOR_BUFFER = (0, 255, 0)
-STATS_COLOR_SIZE = (255, 255, 255)
-STATS_COLOR_DETECTION = (255, 255, 0)
-STATS_COLOR_BUFFERING = (0, 0, 255)
-BOUNDING_BOX_WEIGHT = 2
-# endregion
+WAITKEY_DELAY_MS = CONFIG['advanced_settings']['ui_and_control']['waitkey_delay_ms']
+FONT_HERSHEY_MAP = {
+    "cv.FONT_HERSHEY_SIMPLEX": cv.FONT_HERSHEY_SIMPLEX
+}
+FONT_HERSHEY = FONT_HERSHEY_MAP[CONFIG['advanced_settings']['ui_and_control']['font_hershey']]
 
-# region ---HELPER FUNCTIONS ---
-def print_time(message):
-    """Prints a message with a timestamp."""
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-    print(f"[{timestamp}] {message}")
+STATS_FONT_SCALE = CONFIG['advanced_settings']['ui_and_control']['stats_font_scale']
+STATS_FONT_THICKNESS = CONFIG['advanced_settings']['ui_and_control']['stats_font_thickness']
+STATS_COLOR_FPS = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_fps'])
+STATS_COLOR_BUFFER = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_buffer'])
+STATS_COLOR_SIZE = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_size'])
+STATS_COLOR_DETECTION = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_detection'])
+STATS_COLOR_BUFFERING = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_buffering'])
+BOUNDING_BOX_WEIGHT = CONFIG['advanced_settings']['ui_and_control']['bounding_box_weight']
+
+# Playback settings
+MAX_PLAYBACK_FPS = CONFIG['advanced_settings']['playback_settings']['max_playback_fps']
+MIN_PLAYBACK_FPS = CONFIG['advanced_settings']['playback_settings']['min_playback_fps']
+BUFFER_CRITICAL = CONFIG['advanced_settings']['playback_settings']['buffer_critical']
+BUFFER_OPTIMAL = CONFIG['advanced_settings']['playback_settings']['buffer_optimal']
+
+
+# Playback settings
+MAX_PLAYBACK_FPS = 30.0    # Maximum playback speed
+MIN_PLAYBACK_FPS = 1.0     # Minimum playback speed
+BUFFER_CRITICAL = 5        # Buffer size that triggers slowest playback
+BUFFER_OPTIMAL = 30        # Buffer size for full speed playback
 # endregion
 
 class HLSStreamer:
@@ -68,6 +88,7 @@ class HLSStreamer:
         self.running = False
         self.cap = None
         self.show_stats = SHOW_STATS
+        self.incoming_frame_timestamps = deque()
         
         # Scaling options
         self.scale_factor = scale_factor
@@ -131,52 +152,61 @@ class HLSStreamer:
                         for box in boxes:
                             class_id = int(box.cls.item())
                             confidence = float(box.conf.item())
-                            
-                            if class_id == DETECTION_CLASS_ID and confidence > DETECTION_CONFIDENCE_THRESHOLD:
+
+                            if class_id == DETECTION_CLASS_ID:
                                 x1, y1, x2, y2 = box.xyxy[0].tolist()
                                 train_detections.append({'box': (int(x1), int(y1), int(x2), int(y2)), 'confidence': confidence})
 
                 if train_detections:
-                    self.train_detected_frames += 1
-                    self.last_train_detected_time = time.time()
-
                     best_detection = max(train_detections, key=lambda x: x['confidence'])
                     self.boxCoordinates = best_detection['box']
-                    self.boxColor = (255, 255, 0) # Teal
                     self.train_detected_confedence = best_detection['confidence']
 
-                    if not self.train_detected and self.train_detected_frames >= DETECTION_MIN_FRAMES:
-                        print_time("train detected")
-                        handle_train_detected(frame)
-                        self.train_detected = True
+                    detection_confedence_threshold = START_DETECTION_CONFIDENCE_THRESHOLD if not self.train_detected else CONTINUOUS_DETECTION_CONFIDENCE_THRESHOLD
 
-                    if self.train_detected:
-                        self.boxColor = (0, 255, 0)  # Green
-                    
+                    if self.train_detected_confedence > detection_confedence_threshold:
+                        self.train_detected_frames += 1
+                        self.last_train_detected_time = time.time()
+                        
+                        self.boxColor = (255, 255, 0) if not self.train_detected else (0, 255, 0)
+                        
+                        if not self.train_detected and self.train_detected_frames >= DETECTION_MIN_FRAMES:
+                            print_time("Train detected")
+                            self.train_detected = True
+
+                            # Start recording when train is first detected (150 frames = 5 seconds at 30fps)
+                            record_thread = threading.Thread(target=self.record_callback, args=(150,))
+                            record_thread.start()
+
+                    else:
+                        self.train_detected_frames = 0
+                        self.boxColor = (160, 160, 160) # Grey
+
+                        if self.train_detected:
+                            print_time("Train detection ended")
+                            self.train_detected = False
 
                 else:
                     self.train_detected_frames = 0
                     self.train_detected_confedence = 0
+                    self.boxCoordinates = None
 
-                    if self.train_detected:
-                        self.boxColor = (0, 255, 255) # Yellow
-
-                    if (time.time() - self.last_train_detected_time) > DETECTION_TIMEOUT:
-                        self.boxCoordinates = None
+                    if self.train_detected or (time.time() - self.last_train_detected_time) > DETECTION_TIMEOUT:
                         self.boxColor = None
-
                         if self.train_detected:
                             self.train_detected = False
-                            print_time("train not detected")
+                            print_time("Train detection ended")
                 
                 return train_detections
             
             except Exception as e:
                 print_time(f"Detection error: {e}")
+                self.boxCoordinates = None
+                self.boxColor = None
                 return []
         
         detections = await loop.run_in_executor(None, analyze_frame)
-        return detections # Return the results from the analysis
+        return detections
     
     async def detection_worker(self):
         """Async worker that processes detection frames independently"""
@@ -214,7 +244,7 @@ class HLSStreamer:
         
         self.detection_thread = threading.Thread(target=run_async_loop, daemon=True)
         self.detection_thread.start()
-    
+
     def add_frame_for_detection(self, frame):
         """Add frame to detection queue (thread-safe)"""
         if self.detection_loop is not None:
@@ -226,7 +256,108 @@ class HLSStreamer:
                 future.result(timeout=0.001)
             except (asyncio.TimeoutError, RuntimeError):
                 pass
+
+    def record_callback(self, num_frames=150):
+        """Wrapper to handle recording result"""
+        output_path = self.record_stream(num_frames)
+        if output_path:
+            print_time(f"Recording saved to: {output_path}")
+
+            try:
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_closed():
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                # Run the async function
+                loop.run_until_complete(handle_train_detected(output_path))
+                print_time("Slack notification sent successfully")
+                
+            except Exception as e:
+                print_time(f"Error sending Slack notification: {e}")
+        else:
+            print_time("Recording failed")
+
+    def record_stream(self, num_frames=150):
+        """
+        Records a specified number of frames to an MP4 file.
+        
+        Args:
+            num_frames (int): Number of frames to record (default: 150)
+        """
+        try:
+            detections_dir = Path("detections")
+            detections_dir.mkdir(exist_ok=True)
+
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_path = detections_dir / f"train_detection_{timestamp}.mp4"
+            
+            print_time(f"Starting recording: {output_path}")
+
+            fourcc = cv.VideoWriter_fourcc(*'mp4v')
+            fps = 30.0
+            writer = None
+            
+            frames_recorded = 0
+            timeout_start = time.time()
+            timeout_seconds = 30
+            
+            while frames_recorded < num_frames and self.running:
+                if time.time() - timeout_start > timeout_seconds:
+                    print_time(f"Recording timeout after {timeout_seconds}s, saved {frames_recorded} frames")
+                    break
+
+                with self.buffer_lock:
+                    if len(self.frame_buffer) > 0:
+                        frame_data = self.frame_buffer[-1]
+                        frame = frame_data[0].copy()
+                    else:
+                        time.sleep(0.01)
+                        continue
+                
+                if writer is None:
+                    height, width = frame.shape[:2]
+                    writer = cv.VideoWriter(str(output_path), fourcc, fps, (width, height))
+                    
+                    if not writer.isOpened():
+                        print_time(f"Failed to open video writer for {output_path}")
+                        return
+                
+                writer.write(frame)
+                frames_recorded += 1
+
+                time.sleep(1.0 / fps)
+
+            if writer is not None:
+                writer.release()
+                print_time(f"Recording complete: {frames_recorded} frames saved to {output_path}")
+                return output_path
+            else:
+                print_time("Recording failed: Could not initialize video writer")
+                return None
+                
+        except Exception as e:
+            print_time(f"Recording error: {e}")
+            if 'writer' in locals() and writer is not None:
+                writer.release()
+            return None
     
+    def get_average_incoming_fps(self):
+        """Calculate average incoming FPS over the last 10 seconds."""
+        if len(self.incoming_frame_timestamps) < 2:
+            return 0.0
+
+        duration = self.incoming_frame_timestamps[-1] - self.incoming_frame_timestamps[0]
+        if duration == 0:
+            return 0.0
+
+        return len(self.incoming_frame_timestamps) / duration
+
     def connect(self):
         """Connect to the stream"""
         print_time("Connecting to stream...")
@@ -264,6 +395,15 @@ class HLSStreamer:
                 with self.buffer_lock:
                     self.frame_buffer.append((frame, current_time))
                     self.frames_read += 1
+
+                # Track timestamps of incoming frames
+                self.incoming_frame_timestamps.append(current_time)
+
+                # Remove timestamps older than 10 seconds
+                ten_seconds_ago = current_time - 10
+                while self.incoming_frame_timestamps and self.incoming_frame_timestamps[0] < ten_seconds_ago:
+                    self.incoming_frame_timestamps.popleft()
+
                 
                 consecutive_failures = 0
                 last_read_time = current_time
@@ -409,9 +549,11 @@ class HLSStreamer:
         """Start the streaming"""
         if not self.connect():
             return
-            
-        self.running = True
         
+        self.running = True
+        last_display_time = time.time()
+        frame_interval = 1.0 / DISPLAY_FPS  # Set fixed frame interval
+
         self.read_thread = threading.Thread(target=self.read_frames, daemon=True)
         self.read_thread.start()
         
@@ -426,7 +568,6 @@ class HLSStreamer:
         while self.running:
             frame, is_buffering = self.get_frame()
             if frame is not None:
-                frame = self.scale_frame(frame)
                 cv.imshow('HLS Stream', frame)
                 cv.waitKey(1)
                 break
@@ -436,16 +577,27 @@ class HLSStreamer:
 
         if not self.running:
             return
-            
-        frame_interval = 1.0 / DISPLAY_FPS
-        last_display_time = time.time()
 
         while self.running:
             current_time = time.time()
+            buffer_size = len(self.frame_buffer)
             
-            if current_time - self.last_refresh_time > self.refresh_interval:
-                print_time(f"Periodic refresh after {self.refresh_interval/60:.1f} minutes to stay current")
-                self.reconnect("Periodic refresh")
+            # Dynamic FPS calculation based on buffer size
+            if buffer_size <= BUFFER_CRITICAL:
+                target_fps = MIN_PLAYBACK_FPS
+            elif buffer_size >= BUFFER_OPTIMAL:
+                target_fps = MAX_PLAYBACK_FPS
+            else:
+                # Linear interpolation between min and max FPS based on buffer size
+                buffer_ratio = (buffer_size - BUFFER_CRITICAL) / (BUFFER_OPTIMAL - BUFFER_CRITICAL)
+                target_fps = MIN_PLAYBACK_FPS + buffer_ratio * (MAX_PLAYBACK_FPS - MIN_PLAYBACK_FPS)
+            
+            frame_interval = 1.0 / target_fps
+            elapsed_since_display = current_time - last_display_time
+            
+            # Sleep to maintain adaptive frame rate
+            if elapsed_since_display < frame_interval:
+                time.sleep(frame_interval - elapsed_since_display)
             
             frame, is_buffering = self.get_frame()
             
@@ -497,11 +649,6 @@ class HLSStreamer:
                                     FONT_HERSHEY, text_scale, STATS_COLOR_BUFFERING, text_thickness)
                 
                 cv.imshow('HLS Stream', frame)
-                
-                # Consistent FPS limiter
-                elapsed_since_display = time.time() - last_display_time
-                if elapsed_since_display < frame_interval:
-                    time.sleep(frame_interval - elapsed_since_display)
                 last_display_time = time.time()
             
             elif is_buffering:
@@ -566,7 +713,7 @@ class HLSStreamer:
         
 if __name__ == "__main__":
     
-    streamer = HLSStreamer(STREAM_URL, scale_factor=SCALE_FACTOR, detection_interval=DETECTION_INTERVAL)
+    streamer = HLSStreamer(STREAM_URL)
     
     try:
         streamer.start()

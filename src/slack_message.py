@@ -1,121 +1,132 @@
-# slack_message.py
 import os
 import cv2
-import slack_sdk
 from datetime import datetime
-import numpy as np
+from utils import print_time, load_config
+from slack_sdk.web.async_client import AsyncWebClient
 
-# Slack configuration (ensure these are set securely, not hardcoded)
-slack_token = os.environ.get("SLACK_TOKEN", "xoxb-8678201375584-9289783952051-BanAx2McG4hrWrgf3nCg0D1Z")
-user_id = os.environ.get("SLACK_USER_ID", "U08KY5XBKJ4")
+CONFIG = load_config("config.json")
+
+# Slack configuration
+SLACK_TOKEN = CONFIG['general_settings']['slack_settings']['slack_token']
+USER_ID = CONFIG['general_settings']['slack_settings']['slack_user_id']
 
 # Initialize Slack client
 try:
-    client = slack_sdk.WebClient(token=slack_token)
+    client = AsyncWebClient(token=SLACK_TOKEN)
+    print_time("Slack client initialized successfully", 'green')
 except Exception as e:
     client = None
-    print(f"Failed to initialize Slack client: {e}")
+    print_time(f"Failed to initialize Slack client: {e}")
 
-def send_slack_photo(frame, message="", user_id=None, channel=None):
-    """
-    Sends a photo to Slack from a numpy array frame.
-
-    Args:
-        frame (np.ndarray): The image frame to send.
-        message (str): The initial comment for the file.
-        user_id (str): The user ID to send a direct message to.
-        channel (str): The channel ID to send to.
-
-    Returns:
-        bool: True if the message was sent successfully, False otherwise.
-    """
+async def send_slack_photo(frame, message="", user_id=USER_ID, channel=None):
     if client is None or frame is None:
+        print_time("Client not initialized or frame is None")
         return False
-
+    
     temp_filename = f"temp_slack_{int(datetime.now().timestamp())}.jpg"
+    
     try:
-        # Save the frame to a temporary file
-        cv2.imwrite(temp_filename, frame)
-    except Exception:
+        # Save the frame as a temporary image file
+        success = cv2.imwrite(temp_filename, frame)
+        if not success:
+            print_time("Failed to save image file")
+            return False
+    except Exception as e:
+        print_time(f"Error saving image: {e}")
         return False
-
+    
     try:
-        if user_id:
-            dm_response = client.conversations_open(users=[user_id])
+        # Determine target channel
+        target = channel
+        if user_id and not channel:
+            # Open DM with user
+            dm_response = await client.conversations_open(users=[user_id])
             if not dm_response["ok"]:
+                print_time(f"Failed to open DM: {dm_response.get('error', 'Unknown error')}")
                 return False
             target = dm_response["channel"]["id"]
-        elif channel:
-            target = channel
-        else:
+        elif not channel:
+            print_time("No channel or user_id specified")
             return False
-
-        response = client.files_upload_v2(
-            file=temp_filename,
+        
+        upload_response = await client.files_getUploadURLExternal(
             filename=os.path.basename(temp_filename),
-            title=f"Train Detection - {os.path.basename(temp_filename)}",
-            initial_comment=message,
-            channel=target
+            length=os.path.getsize(temp_filename)
         )
+        
+        if not upload_response["ok"]:
+            print_time(f"Failed to get upload URL: {upload_response.get('error', 'Unknown error')}")
+            return False
+        
+        upload_url = upload_response["upload_url"]
+        file_id = upload_response["file_id"]
+        
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            with open(temp_filename, 'rb') as file_data:
+                async with session.post(upload_url, data=file_data) as upload_result:
+                    if upload_result.status != 200:
+                        print_time(f"File upload failed with status: {upload_result.status}", 'red')
+                        return False
 
-        return response["ok"]
-
-    except Exception:
+        complete_response = await client.files_completeUploadExternal(
+            files=[{
+                "id": file_id,
+                "title": f"Train Detection - {os.path.basename(temp_filename)}"
+            }],
+            channel_id=target,
+            initial_comment=message if message else None
+        )
+        
+        if complete_response["ok"]:
+            return True
+        else:
+            print_time(f"Failed to complete upload: {complete_response.get('error', 'Unknown error')}")
+            return False
+            
+    except Exception as e:
+        print_time(f"Error uploading to Slack: {e}")
         return False
     finally:
-        # Clean up the temporary file
+        # Clean up temporary file
         if os.path.exists(temp_filename):
-            os.remove(temp_filename)
+            try:
+                os.remove(temp_filename)
+            except Exception as e:
+                print_time(f"Failed to remove temp file: {e}")
 
-def send_slack_message(message, user_id=None, channel=None):
+async def send_slack_message(message, user_id=USER_ID, channel=None):
     """
-    Sends a text message to Slack.
-
-    Args:
-        message (str): The text message to send.
-        user_id (str): The user ID to send a direct message to.
-        channel (str): The channel ID to send to.
-
-    Returns:
-        bool: True if the message was sent successfully, False otherwise.
+    Asynchronously sends a text message to Slack.
     """
     if client is None:
+        print_time("Slack client not initialized")
         return False
-
+    
     try:
-        if user_id:
-            dm_response = client.conversations_open(users=[user_id])
+        target = channel
+        if user_id and not channel:
+            dm_response = await client.conversations_open(users=[user_id])
             if not dm_response["ok"]:
+                print_time(f"Failed to open DM: {dm_response.get('error', 'Unknown error')}")
                 return False
             target = dm_response["channel"]["id"]
-        elif channel:
-            target = channel
-        else:
+        elif not channel:
+            print_time("No channel or user_id specified")
             return False
-
-        response = client.chat_postMessage(channel=target, text=message)
-        return response["ok"]
-    except Exception:
+        
+        response = await client.chat_postMessage(
+            channel=target, 
+            text=message
+        )
+        
+        if response["ok"]:
+            print_time("Message sent successfully to Slack")
+            return True
+        else:
+            print_time(f"Failed to send message: {response.get('error', 'Unknown error')}")
+            return False
+            
+    except Exception as e:
+        print_time(f"Error sending message to Slack: {e}")
         return False
-
-def handle_train_detected(frame):
-    """
-    Handles the logic for sending a Slack notification when a train is detected.
-
-    Args:
-        frame (np.ndarray): The image frame of the detection.
-    """
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    message = f"🚂 Train Detected @ {timestamp}"
-
-    # Use the new function that takes a frame directly
-    success = send_slack_photo(frame, message, user_id=user_id)
-    #success = False
-    print("-----------------------------------")
-    print(f"Message: {message}")
-    print(f"Image Success: {success}")
-    print("-----------------------------------")
-
-    if not success:
-        fallback_message = f"{message}\n\n📸 Failed to send image."
-        send_slack_message(fallback_message, user_id=user_id)
