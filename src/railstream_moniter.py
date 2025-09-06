@@ -72,7 +72,6 @@ MIN_PLAYBACK_FPS = CONFIG['advanced_settings']['playback_settings']['min_playbac
 BUFFER_CRITICAL = CONFIG['advanced_settings']['playback_settings']['buffer_critical']
 BUFFER_OPTIMAL = CONFIG['advanced_settings']['playback_settings']['buffer_optimal']
 
-
 # Playback settings
 MAX_PLAYBACK_FPS = 30.0    # Maximum playback speed
 MIN_PLAYBACK_FPS = 1.0     # Minimum playback speed

@@ -6,7 +6,7 @@ from utils import print_time
 from ultralytics import YOLO
 from datetime import datetime
 from collections import defaultdict
-from slack_message import send_slack_message, send_slack_photo
+from slack_message import send_slack_message, send_slack_photo, send_slack_video
 
 def get_bounding_boxes(cap, model, start_frame, end_frame, detection_class_id=6):
 
@@ -149,10 +149,11 @@ async def handle_train_detected(video_path):
     # Send the extracted frame
     print_time("Sending Slack Message", 'yellow')
     success = await send_slack_photo(frame, message)
+    #success = await send_slack_video(video_path, message)
     color = (255, 192, 128) # Orange
     print_time("-----------------------------------", color)
     print_time(f"Message: {message}", color)
-    print_time(f"Image Success: {success}", color)
+    print_time(f"Media Success: {success}", color)
     print_time("-----------------------------------", color)
     
     if not success:
