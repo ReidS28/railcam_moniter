@@ -603,10 +603,24 @@ class HLSStreamer:
             if frame is not None:
                 frame = self.scale_frame(frame)
                 
+                # Mask bottom-right corner
+                #h, w = frame.shape[:2]
+                #cv.rectangle(frame, (w - 100, h - 60), (w, h), (64, 64, 64), -1)
+
+                
                 if (self.detection_enabled and 
                     current_time - self.last_detection_time >= self.detection_interval):
-                    self.add_frame_for_detection(frame)
+
+                    detection_frame = frame.copy()
+
+                    # Mask bottom-left corner
+                    #h, w = detection_frame.shape[:2]
+                    #cv.rectangle(detection_frame, (0, h - 200), (200, h), (0, 0, 0), -1)
+                    
+
+                    self.add_frame_for_detection(detection_frame)
                     self.last_detection_time = current_time
+
                 
                 self.frames_displayed += 1
 

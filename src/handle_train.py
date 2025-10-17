@@ -109,7 +109,7 @@ async def handle_train_detected(video_path):
     start_frame = 0
     end_frame = 150
 
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
     message = f"🚂 Train Detected @ {timestamp}"
 
     if not os.path.exists(video_path):
