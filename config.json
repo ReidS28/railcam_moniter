@@ -1,12 +1,19 @@
 {
 	"general_settings": {
 		"stream_settings": {
+			"stream_name": "CPT_CAM01",
 			"streams": [
 				{
 					"name": "CPT_CAM01",
 					"url": "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8",
 					"left": 1,
 					"right": 2
+				},
+				{
+					"name": "FOS_CAM01",
+					"url": "https://edge01.railstream.net/Live_Web_Free/FOS_CAM01/playlist_dvr_timeshift-0-1800.m3u8",
+					"left": 3,
+					"right": 4
 				},
 				{
 					"name": "FOS_CAM02",
@@ -21,13 +28,36 @@
 					"right": 6
 				},
 				{
+					"name": "CHS_CAM01",
+					"url": "https://edge01.railstream.net/Live_Web_Free/CHS_CAM01/playlist_dvr_timeshift-0-1800.m3u8",
+					"left": 5,
+					"right": 6
+				},
+				{
+					"name": "CHS_CAM02",
+					"url": "https://edge01.railstream.net/Live_Web_Free/CHS_CAM02/playlist_dvr_timeshift-0-1800.m3u8",
+					"left": 5,
+					"right": 6
+				},
+				{
+					"name": "CAR_CAM01",
+					"url": "https://edge01.railstream.net/Live_Web_Free/CAR_CAM01/playlist_dvr_timeshift-0-1800.m3u8",
+					"left": 5,
+					"right": 6
+				},
+				{
+					"name": "BIM_CAM02",
+					"url": "https://edge01.railstream.net/Live_Web_Free/BIM_CAM02/playlist_dvr_timeshift-0-1800.m3u8",
+					"left": 5,
+					"right": 6
+				},
+				{
 					"name": "LOOP_MP4",
 					"url": "2025-07-31 14-40-10_loop.mp4",
 					"left": 7,
 					"right": 8
 				}
-			],
-			"stream_name": "CPT_CAM01"
+			]
 		},
 		"slack_settings": {
 			"slack_token": "xoxb-8678201375584-9289783952051-BanAx2McG4hrWrgf3nCg0D1Z",

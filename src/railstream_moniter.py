@@ -172,10 +172,18 @@ class HLSStreamer:
                         if not self.train_detected and self.train_detected_frames >= DETECTION_MIN_FRAMES:
                             print_time("Train detected")
                             self.train_detected = True
-
                             # Start recording when train is first detected (150 frames = 5 seconds at 30fps)
-                            record_thread = threading.Thread(target=self.record_callback, args=(150,))
-                            record_thread.start()
+                            # Avoid starting multiple simultaneous recordings and make the
+                            # thread a daemon so it won't block process shutdown.
+                            try:
+                                if not getattr(self, '_recording_in_progress', False):
+                                    self._recording_in_progress = True
+                                    record_thread = threading.Thread(target=self._record_thread_wrapper, args=(150,), daemon=True)
+                                    record_thread.start()
+                                else:
+                                    print_time("Recording already in progress, skipping new recording")
+                            except Exception as e:
+                                print_time(f"Failed to start recording thread: {e}")
 
                     else:
                         self.train_detected_frames = 0
@@ -258,29 +266,32 @@ class HLSStreamer:
 
     def record_callback(self, num_frames=150):
         """Wrapper to handle recording result"""
-        output_path = self.record_stream(num_frames)
-        if output_path:
-            print_time(f"Recording saved to: {output_path}")
-
-            try:
+        try:
+            output_path = self.record_stream(num_frames)
+            if output_path:
+                print_time(f"Recording saved to: {output_path}")
 
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_closed():
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                except RuntimeError:
+                    # Run the async handler in a dedicated event loop for this thread.
+                    # Creating a new loop here avoids NameError or attempting to reuse
+                    # an event loop that may be running elsewhere in the process.
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                
-                # Run the async function
-                loop.run_until_complete(handle_train_detected(output_path))
-                print_time("Slack notification sent successfully")
-                
-            except Exception as e:
-                print_time(f"Error sending Slack notification: {e}")
-        else:
-            print_time("Recording failed")
+                    loop.run_until_complete(handle_train_detected(str(output_path)))
+                    print_time("Slack notification sent successfully")
+                except Exception as e:
+                    print_time(f"Error sending Slack notification: {e}")
+                finally:
+                    try:
+                        loop.close()
+                    except Exception:
+                        pass
+            else:
+                print_time("Recording failed")
+        except Exception as e:
+            # Catch any unhandled exception inside the recorder so the background
+            # thread doesn't terminate with an exception that could be confusing.
+            print_time(f"Unhandled exception in record_callback: {e}")
 
     def record_stream(self, num_frames=150):
         """
@@ -311,13 +322,14 @@ class HLSStreamer:
                     print_time(f"Recording timeout after {timeout_seconds}s, saved {frames_recorded} frames")
                     break
 
+                frame = None
                 with self.buffer_lock:
-                    if len(self.frame_buffer) > 0:
-                        frame_data = self.frame_buffer[-1]
-                        frame = frame_data[0].copy()
-                    else:
-                        time.sleep(0.01)
-                        continue
+                    if self.frame_buffer:
+                        frame = self.frame_buffer[-1][0].copy()  # Make a copy of the newest frame
+
+                if frame is None:
+                    time.sleep(0.01)
+                    continue
                 
                 if writer is None:
                     height, width = frame.shape[:2]
@@ -345,6 +357,19 @@ class HLSStreamer:
             if 'writer' in locals() and writer is not None:
                 writer.release()
             return None
+
+    def _record_thread_wrapper(self, num_frames):
+        """Wrapper to run record_callback and ensure _recording_in_progress flag cleared."""
+        try:
+            self.record_callback(num_frames)
+        except Exception as e:
+            # Log unexpected exceptions from the recording thread
+            print_time(f"Exception in recording thread: {e}")
+        finally:
+            try:
+                self._recording_in_progress = False
+            except Exception:
+                pass
     
     def get_average_incoming_fps(self):
         """Calculate average incoming FPS over the last 10 seconds."""
@@ -583,7 +608,7 @@ class HLSStreamer:
             
             # Dynamic FPS calculation based on buffer size
             if buffer_size <= BUFFER_CRITICAL:
-                target_fps = MIN_PLAYBACK_FPS
+                target_fps = MAX_PLAYBACK_FPS  # SPEED UP TO CATCH UP
             elif buffer_size >= BUFFER_OPTIMAL:
                 target_fps = MAX_PLAYBACK_FPS
             else:
@@ -603,22 +628,15 @@ class HLSStreamer:
             if frame is not None:
                 frame = self.scale_frame(frame)
                 
-                # Mask bottom-right corner
-                #h, w = frame.shape[:2]
-                #cv.rectangle(frame, (w - 100, h - 60), (w, h), (64, 64, 64), -1)
+                # Mask logo in corner
+                h, w = frame.shape[:2]
+                cv.rectangle(frame, (w - 100, h - 60), (w, h), (64, 64, 64), -1)
 
                 
                 if (self.detection_enabled and 
                     current_time - self.last_detection_time >= self.detection_interval):
 
-                    detection_frame = frame.copy()
-
-                    # Mask bottom-left corner
-                    #h, w = detection_frame.shape[:2]
-                    #cv.rectangle(detection_frame, (0, h - 200), (200, h), (0, 0, 0), -1)
-                    
-
-                    self.add_frame_for_detection(detection_frame)
+                    self.add_frame_for_detection(frame)
                     self.last_detection_time = current_time
 
                 

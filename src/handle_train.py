@@ -104,7 +104,18 @@ def get_frame(video_path, frame_index):
 
 async def handle_train_detected(video_path):
 
-    model = YOLO('yolov8m.pt')
+    # Load model safely; if the model file is missing or fails to load, log and abort.
+    model_path = 'yolov8m.pt'
+    try:
+        model = YOLO(model_path)
+    except Exception as e:
+        print_time(f"Failed to load detection model '{model_path}': {e}", 'red')
+        # Still attempt to notify via Slack text-only message
+        try:
+            await send_slack_message(f"🚂 Train Detected, but failed to load model: {e}")
+        except Exception:
+            pass
+        return
     
     start_frame = 0
     end_frame = 150
@@ -128,7 +139,10 @@ async def handle_train_detected(video_path):
     if best_frame_index == -1:
         print_time(f"No train detected in video: {video_path}", 'red')
         fallback_message = f"{message}\nFailed to find best frame."
-        await send_slack_message(fallback_message)
+        try:
+            await send_slack_message(fallback_message)
+        except Exception as e:
+            print_time(f"Failed to send fallback Slack message: {e}", 'red')
         return
 
     frame = get_frame(video_path, best_frame_index)
@@ -136,7 +150,11 @@ async def handle_train_detected(video_path):
     if frame is None:
         print_time(f"Failed to get frame {best_frame_index} from video: {video_path}", 'red')
         fallback_message = f"{message}\nFailed to get frame {best_frame_index}."
-        await send_slack_message(fallback_message)
+        try:
+            await send_slack_message(fallback_message)
+        except Exception as e:
+            print_time(f"Failed to send fallback Slack message: {e}", 'red')
+        return
         return
     
     # Resize the frame if it's too large
@@ -148,7 +166,11 @@ async def handle_train_detected(video_path):
     
     # Send the extracted frame
     print_time("Sending Slack Message", 'yellow')
-    success = await send_slack_photo(frame, message)
+    try:
+        success = await send_slack_photo(frame, message)
+    except Exception as e:
+        print_time(f"Exception while sending photo to Slack: {e}", 'red')
+        success = False
     #success = await send_slack_video(video_path, message)
     color = (255, 192, 128) # Orange
     print_time("-----------------------------------", color)

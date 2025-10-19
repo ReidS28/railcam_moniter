@@ -86,15 +86,12 @@ def get_m3u8(url="https://railstream.net/camera-lineup/delaware-railcam"):
 if __name__ == "__main__":
     # Use command line argument or default URL
     url = sys.argv[1] if len(sys.argv) > 1 else None
+    url = "https://railstream.net/live-cameras/item/atlanta-guest"
     result = get_m3u8(url) if url else get_m3u8()
     if result:
         print(f"M3U8 Stream URL: {result}")
     else:
         print("M3U8 URL not found.")
 
-#STREAM_URL = get_m3u8("https://railstream.net/camera-lineup/delaware-railcam")
-#STREAM_URL = get_m3u8("https://railstream.net/live-cameras/item/fostoria-oh-east-guest")
-STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
-#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/FOS_CAM02/playlist_dvr_timeshift-0-1800.m3u8"
-#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CRS_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
-#STREAM_URL = "2025-07-31 14-40-10_loop.mp4"
+#STREAM_URL = get_m3u8("https://railstream.net/live-cameras/item/chesterton-in-east-guest")
+#STREAM_URL = "https://edge01.railstream.net/Live_Web_Free/CPT_CAM01/playlist_dvr_timeshift-0-1800.m3u8"
