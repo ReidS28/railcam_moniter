@@ -1,753 +1,629 @@
-import os
-import time
-import json
 import asyncio
 import threading
-import cv2 as cv
-import numpy as np
-from pathlib import Path
-from ultralytics import YOLO
+import time
 from collections import deque
 from datetime import datetime
+from pathlib import Path
+import cv2 as cv
+from ultralytics import YOLO
+from concurrent.futures import ThreadPoolExecutor
+import os
+
 from stream_url_fetcher import get_m3u8
-from utils import print_time, load_config
+from utils import load_config, print_time
 from handle_train import handle_train_detected
 
-# region --- CONSTANTS ---
+
+# Load config and helper
 CONFIG = load_config('config.json')
 
-# Stream configuration
-streams = CONFIG['general_settings']['stream_settings']['streams']
-stream_name = CONFIG['general_settings']['stream_settings']['stream_name']
-stream_config = None
-for stream in streams:
-    if stream['name'] == stream_name:
-        stream_config = stream
-STREAM_URL = stream_config['url']
-LEFT = stream_config['left']
-RIGHT = stream_config['right']
 
-# Display and performance settings
-SCALE_FACTOR = CONFIG['advanced_settings']['display_and_performance_settings']['scale_factor']
-TARGET_WIDTH = CONFIG['advanced_settings']['display_and_performance_settings']['target_width']
-TARGET_HEIGHT = CONFIG['advanced_settings']['display_and_performance_settings']['target_height']
-SHOW_STATS = CONFIG['advanced_settings']['display_and_performance_settings']['show_stats']
+def _cfg(path, default=None):
+    parts = path.split('.')
+    cur = CONFIG
+    for p in parts:
+        if isinstance(cur, dict) and p in cur:
+            cur = cur[p]
+        else:
+            return default
+    return cur
 
-# Buffering and refresh
-REFRESH_INTERVAL_SECONDS = CONFIG['advanced_settings']['buffering_and_refresh']['refresh_interval_seconds']
-MIN_BUFFER_SIZE = CONFIG['advanced_settings']['buffering_and_refresh']['min_buffer_size']
-TARGET_BUFFER_SIZE = CONFIG['advanced_settings']['buffering_and_refresh']['target_buffer_size']
-BUFFER_MAXLEN = CONFIG['advanced_settings']['buffering_and_refresh']['buffer_maxlen']
-DISPLAY_FPS = CONFIG['advanced_settings']['buffering_and_refresh']['display_fps']
 
-# Detection settings
-DETECTION_INTERVAL = CONFIG['advanced_settings']['detection_settings']['detection_interval']
-DETECTION_ENABLED = CONFIG['advanced_settings']['detection_settings']['detection_enabled']
-DETECTION_MODEL_PATH = CONFIG['advanced_settings']['detection_settings']['detection_model_path']
-DETECTION_CLASS_ID = CONFIG['advanced_settings']['detection_settings']['detection_class_id']
-START_DETECTION_CONFIDENCE_THRESHOLD = CONFIG['advanced_settings']['detection_settings']['start_detection_confidence_threshold']
-CONTINUOUS_DETECTION_CONFIDENCE_THRESHOLD = CONFIG['advanced_settings']['detection_settings']['continuous_detection_confidence_threshold']
-DETECTION_MIN_FRAMES = CONFIG['advanced_settings']['detection_settings']['detection_min_frames']
-DETECTION_TIMEOUT = CONFIG['advanced_settings']['detection_settings']['detection_timeout']
+# Config values (defaults chosen to be safe)
+STREAM_NAME = _cfg('general_settings.stream_settings.stream_name')
+STREAMS = _cfg('general_settings.stream_settings.streams', [])
+STREAM_CONFIG = next((s for s in STREAMS if s.get('name') == STREAM_NAME), STREAMS[0] if STREAMS else {})
+STREAM_URL = STREAM_CONFIG.get('url')
+if not STREAM_URL:
+    raise RuntimeError("No stream URL configured. Please set general_settings.stream_settings in config.json")
 
-# UI and control
-WAITKEY_DELAY_MS = CONFIG['advanced_settings']['ui_and_control']['waitkey_delay_ms']
-FONT_HERSHEY_MAP = {
-    "cv.FONT_HERSHEY_SIMPLEX": cv.FONT_HERSHEY_SIMPLEX
-}
-FONT_HERSHEY = FONT_HERSHEY_MAP[CONFIG['advanced_settings']['ui_and_control']['font_hershey']]
+SCALE_FACTOR = _cfg('advanced_settings.display_and_performance_settings.scale_factor', 1.0)
+TARGET_WIDTH = _cfg('advanced_settings.display_and_performance_settings.target_width')
+TARGET_HEIGHT = _cfg('advanced_settings.display_and_performance_settings.target_height')
+SHOW_STATS = _cfg('advanced_settings.display_and_performance_settings.show_stats', True)
 
-STATS_FONT_SCALE = CONFIG['advanced_settings']['ui_and_control']['stats_font_scale']
-STATS_FONT_THICKNESS = CONFIG['advanced_settings']['ui_and_control']['stats_font_thickness']
-STATS_COLOR_FPS = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_fps'])
-STATS_COLOR_BUFFER = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_buffer'])
-STATS_COLOR_SIZE = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_size'])
-STATS_COLOR_DETECTION = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_detection'])
-STATS_COLOR_BUFFERING = tuple(CONFIG['advanced_settings']['ui_and_control']['stats_color_buffering'])
-BOUNDING_BOX_WEIGHT = CONFIG['advanced_settings']['ui_and_control']['bounding_box_weight']
+REFRESH_INTERVAL_SECONDS = _cfg('advanced_settings.buffering_and_refresh.refresh_interval_seconds', 60 * 5)
+MIN_BUFFER_SIZE = _cfg('advanced_settings.buffering_and_refresh.min_buffer_size', 5)
+BUFFER_MAXLEN = _cfg('advanced_settings.buffering_and_refresh.buffer_maxlen', 120)
+DISPLAY_FPS = _cfg('advanced_settings.buffering_and_refresh.display_fps', 30)
 
-# Playback settings
-MAX_PLAYBACK_FPS = CONFIG['advanced_settings']['playback_settings']['max_playback_fps']
-MIN_PLAYBACK_FPS = CONFIG['advanced_settings']['playback_settings']['min_playback_fps']
-BUFFER_CRITICAL = CONFIG['advanced_settings']['playback_settings']['buffer_critical']
-BUFFER_OPTIMAL = CONFIG['advanced_settings']['playback_settings']['buffer_optimal']
+DETECTION_INTERVAL = _cfg('advanced_settings.detection_settings.detection_interval', 1.0)
+DETECTION_ENABLED = _cfg('advanced_settings.detection_settings.detection_enabled', True)
+DETECTION_MODEL_PATH = _cfg('advanced_settings.detection_settings.detection_model_path')
+DETECTION_CLASS_ID = _cfg('advanced_settings.detection_settings.detection_class_id', 0)
+START_DETECTION_CONFIDENCE_THRESHOLD = _cfg('advanced_settings.detection_settings.start_detection_confidence_threshold', 0.6)
+CONTINUOUS_DETECTION_CONFIDENCE_THRESHOLD = _cfg('advanced_settings.detection_settings.continuous_detection_confidence_threshold', 0.5)
+DETECTION_MIN_FRAMES = _cfg('advanced_settings.detection_settings.detection_min_frames', 3)
+DETECTION_TIMEOUT = _cfg('advanced_settings.detection_settings.detection_timeout', 5)
+# Quick filters to reduce false positives
+DETECTION_MIN_BBOX_AREA = _cfg('advanced_settings.detection_settings.min_bbox_area', 5000)
+DETECTION_ASPECT_RATIO_RANGE = _cfg('advanced_settings.detection_settings.aspect_ratio_range', (0.5, 4.0))
+DETECTION_IOU_MATCH_THRESHOLD = _cfg('advanced_settings.detection_settings.iou_match_threshold', 0.4)
 
-# Playback settings
-MAX_PLAYBACK_FPS = 30.0    # Maximum playback speed
-MIN_PLAYBACK_FPS = 1.0     # Minimum playback speed
-BUFFER_CRITICAL = 5        # Buffer size that triggers slowest playback
-BUFFER_OPTIMAL = 30        # Buffer size for full speed playback
-# endregion
+WAITKEY_DELAY_MS = _cfg('advanced_settings.ui_and_control.waitkey_delay_ms', 1)
+FONT_HERSHEY = cv.FONT_HERSHEY_SIMPLEX
+STATS_FONT_SCALE = _cfg('advanced_settings.ui_and_control.stats_font_scale', 0.6)
+STATS_FONT_THICKNESS = _cfg('advanced_settings.ui_and_control.stats_font_thickness', 1)
+STATS_COLOR_FPS = tuple(_cfg('advanced_settings.ui_and_control.stats_color_fps', (0, 255, 0)))
+STATS_COLOR_BUFFER = tuple(_cfg('advanced_settings.ui_and_control.stats_color_buffer', (255, 255, 255)))
+STATS_COLOR_SIZE = tuple(_cfg('advanced_settings.ui_and_control.stats_color_size', (200, 200, 200)))
+STATS_COLOR_DETECTION = tuple(_cfg('advanced_settings.ui_and_control.stats_color_detection', (0, 255, 255)))
+STATS_COLOR_BUFFERING = tuple(_cfg('advanced_settings.ui_and_control.stats_color_buffering', (0, 0, 255)))
+BOUNDING_BOX_WEIGHT = _cfg('advanced_settings.ui_and_control.bounding_box_weight', 2)
+
+MAX_PLAYBACK_FPS = _cfg('advanced_settings.playback_settings.max_playback_fps', 30.0)
+MIN_PLAYBACK_FPS = _cfg('advanced_settings.playback_settings.min_playback_fps', 1.0)
+BUFFER_CRITICAL = _cfg('advanced_settings.playback_settings.buffer_critical', 5)
+BUFFER_OPTIMAL = _cfg('advanced_settings.playback_settings.buffer_optimal', 30)
+
 
 class HLSStreamer:
-    def __init__(self, url, scale_factor=SCALE_FACTOR, width=TARGET_WIDTH, height=TARGET_HEIGHT, 
-                refresh_interval=REFRESH_INTERVAL_SECONDS, detection_interval=DETECTION_INTERVAL):
+    """Stream reader with async detection and recording."""
+
+    def __init__(self, url):
         self.url = url
         self.frame_buffer = deque(maxlen=BUFFER_MAXLEN)
-        self.running = False
-        self.cap = None
-        self.show_stats = SHOW_STATS
-        self.incoming_frame_timestamps = deque()
-        
-        # Scaling options
-        self.scale_factor = scale_factor
-        self.target_width = width
-        self.target_height = height
+        self.buffer_lock = threading.Lock()
+
+        self.scale_factor = SCALE_FACTOR
+        self.target_width = TARGET_WIDTH
+        self.target_height = TARGET_HEIGHT
         self.original_size = None
-        
-        # Auto-refresh to stay current
-        self.refresh_interval = refresh_interval
-        self.last_refresh_time = time.time()
-        
-        # Buffer management
-        self.min_buffer_size = MIN_BUFFER_SIZE
-        self.target_buffer_size = TARGET_BUFFER_SIZE
+
+        self.running = False
         self.buffering = True
-        
-        # Stats
+        self.show_stats = SHOW_STATS
+
         self.frames_read = 0
         self.frames_displayed = 0
+        self.incoming_frame_timestamps = deque()
         self.start_time = time.time()
-        self.last_stats_time = time.time()
-        
-        # Async detection settings
-        self.detection_interval = detection_interval
-        self.last_detection_time = 0
+
+        self.cap = None
+
+        self.refresh_interval = REFRESH_INTERVAL_SECONDS
+        self.last_refresh_time = time.time()
+
+        self.detection_interval = DETECTION_INTERVAL
+        self.last_detection_time = 0.0
         self.detection_enabled = DETECTION_ENABLED
         self.detection_queue = asyncio.Queue(maxsize=10)
         self.detection_loop = None
         self.detection_task = None
-        self.model = YOLO(DETECTION_MODEL_PATH)
-        
-        # detection states
-        self.train_detected_frames = 0
-        self.train_detected = False
-        self.last_train_detected_time = time.time()
-        self.train_detected_confedence = 0
+        # Use a dedicated ThreadPoolExecutor for model inference so we can control it and shutdown cleanly
+        self._inference_executor = ThreadPoolExecutor(max_workers=1)
+        # Validate model path; if missing disable detection with a friendly warning
+        self.model = None
+        if DETECTION_MODEL_PATH:
+            if os.path.exists(DETECTION_MODEL_PATH):
+                try:
+                    self.model = YOLO(DETECTION_MODEL_PATH)
+                except Exception as e:
+                    print_time(f"Failed to load detection model: {e}. Detection disabled.")
+                    self.model = None
+            else:
+                print_time(f"Detection model path not found: {DETECTION_MODEL_PATH}. Detection disabled.")
 
-        # box status
-        self.boxColor = None
-        self.boxCoordinates = None
-        
-        # Threading
+        self.train_detected = False
+        self.train_detected_frames = 0
+        self.last_train_detected_time = 0.0
+        self.train_detected_confidence = 0.0
+        self.box_color = None
+        self.box_coordinates = None
+
         self.read_thread = None
-        self.buffer_lock = threading.Lock()
-    
-    async def run_detection(self, frame):
-        """Async frame detection - detects trains using YOLOv8n"""
-        if frame is None:
-            return
-            
-        loop = asyncio.get_event_loop()
-        
-        def analyze_frame():
+        self.detection_thread = None
+        self._recording_in_progress = False
+
+    # Detection
+    async def _analyze_frame_async(self, frame):
+        if frame is None or self.model is None:
+            return []
+
+        def _infer():
             try:
                 results = self.model(frame, verbose=False)
-                train_detections = []
-                
-                for result in results:
-                    boxes = result.boxes
-                    if boxes is not None:
-                        for box in boxes:
-                            class_id = int(box.cls.item())
-                            confidence = float(box.conf.item())
-
-                            if class_id == DETECTION_CLASS_ID:
-                                x1, y1, x2, y2 = box.xyxy[0].tolist()
-                                train_detections.append({'box': (int(x1), int(y1), int(x2), int(y2)), 'confidence': confidence})
-
-                if train_detections:
-                    best_detection = max(train_detections, key=lambda x: x['confidence'])
-                    self.boxCoordinates = best_detection['box']
-                    self.train_detected_confedence = best_detection['confidence']
-
-                    detection_confedence_threshold = START_DETECTION_CONFIDENCE_THRESHOLD if not self.train_detected else CONTINUOUS_DETECTION_CONFIDENCE_THRESHOLD
-
-                    if self.train_detected_confedence > detection_confedence_threshold:
-                        self.train_detected_frames += 1
-                        self.last_train_detected_time = time.time()
-                        
-                        self.boxColor = (255, 255, 0) if not self.train_detected else (0, 255, 0)
-                        
-                        if not self.train_detected and self.train_detected_frames >= DETECTION_MIN_FRAMES:
-                            print_time("Train detected")
-                            self.train_detected = True
-                            # Start recording when train is first detected (150 frames = 5 seconds at 30fps)
-                            # Avoid starting multiple simultaneous recordings and make the
-                            # thread a daemon so it won't block process shutdown.
-                            try:
-                                if not getattr(self, '_recording_in_progress', False):
-                                    self._recording_in_progress = True
-                                    record_thread = threading.Thread(target=self._record_thread_wrapper, args=(150,), daemon=True)
-                                    record_thread.start()
-                                else:
-                                    print_time("Recording already in progress, skipping new recording")
-                            except Exception as e:
-                                print_time(f"Failed to start recording thread: {e}")
-
-                    else:
-                        self.train_detected_frames = 0
-                        self.boxColor = (160, 160, 160) # Grey
-
-                        if self.train_detected:
-                            print_time("Train detection ended")
-                            self.train_detected = False
-
-                else:
-                    self.train_detected_frames = 0
-                    self.train_detected_confedence = 0
-                    self.boxCoordinates = None
-
-                    if self.train_detected or (time.time() - self.last_train_detected_time) > DETECTION_TIMEOUT:
-                        self.boxColor = None
-                        if self.train_detected:
-                            self.train_detected = False
-                            print_time("Train detection ended")
-                
-                return train_detections
-            
+                detections = []
+                for r in results:
+                    boxes = getattr(r, 'boxes', None)
+                    if boxes is None:
+                        continue
+                    for box in boxes:
+                        class_id = int(box.cls.item())
+                        conf = float(box.conf.item())
+                        if class_id == DETECTION_CLASS_ID:
+                            x1, y1, x2, y2 = box.xyxy[0].tolist()
+                            detections.append({'box': (int(x1), int(y1), int(x2), int(y2)), 'confidence': conf})
+                return detections
             except Exception as e:
-                print_time(f"Detection error: {e}")
-                self.boxCoordinates = None
-                self.boxColor = None
+                print_time(f"Detection exception: {e}")
                 return []
-        
-        detections = await loop.run_in_executor(None, analyze_frame)
+
+        loop = asyncio.get_running_loop()
+        # run inference using our dedicated executor
+        detections = await loop.run_in_executor(self._inference_executor, _infer)
+
+        # Apply quick filtering (area/aspect) and temporal smoothing via IoU matching
+        def _passes_filters(box, conf):
+            x1, y1, x2, y2 = box
+            w = max(1, x2 - x1)
+            h = max(1, y2 - y1)
+            area = w * h
+            if area < DETECTION_MIN_BBOX_AREA:
+                return False
+            ar = w / float(h)
+            if not (DETECTION_ASPECT_RATIO_RANGE[0] <= ar <= DETECTION_ASPECT_RATIO_RANGE[1]):
+                return False
+            if conf < CONTINUOUS_DETECTION_CONFIDENCE_THRESHOLD:
+                return False
+            return True
+
+        def _iou(a, b):
+            ax1, ay1, ax2, ay2 = a
+            bx1, by1, bx2, by2 = b
+            ix1 = max(ax1, bx1)
+            iy1 = max(ay1, by1)
+            ix2 = min(ax2, bx2)
+            iy2 = min(ay2, by2)
+            iw = max(0, ix2 - ix1)
+            ih = max(0, iy2 - iy1)
+            inter = iw * ih
+            area_a = max(0, ax2 - ax1) * max(0, ay2 - ay1)
+            area_b = max(0, bx2 - bx1) * max(0, by2 - by1)
+            union = area_a + area_b - inter
+            return inter / union if union > 0 else 0.0
+
+        # Filter detections
+        filtered = [d for d in detections if _passes_filters(d['box'], d['confidence'])]
+        if filtered:
+            best = max(filtered, key=lambda d: d['confidence'])
+            self.box_coordinates = best['box']
+            self.train_detected_confidence = best['confidence']
+
+            threshold = START_DETECTION_CONFIDENCE_THRESHOLD if not self.train_detected else CONTINUOUS_DETECTION_CONFIDENCE_THRESHOLD
+            if self.train_detected_confidence > threshold:
+                # temporal smoothing: require that the new box overlaps (IoU) sufficiently with the previous
+                if self.box_coordinates and self.box_coordinates is not None and self.train_detected_frames > 0:
+                    prev = self.box_coordinates_prev if hasattr(self, 'box_coordinates_prev') else None
+                    if prev is not None:
+                        overlap = _iou(prev, self.box_coordinates)
+                        if overlap < DETECTION_IOU_MATCH_THRESHOLD:
+                            # do not count as consecutive detection
+                            self.train_detected_frames = 1
+                        else:
+                            self.train_detected_frames += 1
+                    else:
+                        self.train_detected_frames += 1
+                else:
+                    self.train_detected_frames += 1
+                self.last_train_detected_time = time.time()
+                self.box_color = (255, 255, 0) if not self.train_detected else (0, 255, 0)
+
+                if not self.train_detected and self.train_detected_frames >= DETECTION_MIN_FRAMES:
+                    print_time("Train detected")
+                    self.train_detected = True
+                    if not self._recording_in_progress:
+                        self._recording_in_progress = True
+                        threading.Thread(target=self._record_thread_wrapper, args=(150,), daemon=True).start()
+            # remember previous box for next frame's IoU check
+            self.box_coordinates_prev = self.box_coordinates
+        else:
+            # No detections (or filtered out) -> reset detection counters/state
+            self.train_detected_frames = 0
+            self.train_detected_confidence = 0.0
+            self.box_coordinates = None
+            self.box_color = (160, 160, 160)
+            if self.train_detected and (time.time() - self.last_train_detected_time) > DETECTION_TIMEOUT:
+                self.box_color = None
+                self.train_detected = False
+
         return detections
-    
+
     async def detection_worker(self):
-        """Async worker that processes detection frames independently"""
         print_time("Starting async detection worker...")
-        
         while self.running:
             try:
                 frame = await asyncio.wait_for(self.detection_queue.get(), timeout=1.0)
-                await self.run_detection(frame)
+                await self._analyze_frame_async(frame)
                 self.detection_queue.task_done()
-                await asyncio.sleep(0.01)
-                
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                print_time(f"Detection error: {e}")
+                print_time(f"Detection worker error: {e}")
                 await asyncio.sleep(0.1)
-        
         print_time("Async detection worker stopped")
 
     def start_async_detection(self):
-        """Start the async detection loop in a separate thread"""
-        def run_async_loop():
+        def _loop():
             self.detection_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.detection_loop)
-            
             self.detection_task = self.detection_loop.create_task(self.detection_worker())
-            
             try:
                 self.detection_loop.run_until_complete(self.detection_task)
             except Exception as e:
-                print_time(f"Async detection loop error: {e}")
+                print_time(f"Detection loop error: {e}")
             finally:
-                self.detection_loop.close()
-        
-        self.detection_thread = threading.Thread(target=run_async_loop, daemon=True)
+                try:
+                    self.detection_loop.close()
+                except Exception:
+                    pass
+
+        self.detection_thread = threading.Thread(target=_loop, daemon=True)
         self.detection_thread.start()
 
     def add_frame_for_detection(self, frame):
-        """Add frame to detection queue (thread-safe)"""
-        if self.detection_loop is not None:
-            try:
-                future = asyncio.run_coroutine_threadsafe(
-                    self.detection_queue.put(frame.copy()), 
-                    self.detection_loop
-                )
-                future.result(timeout=0.001)
-            except (asyncio.TimeoutError, RuntimeError):
-                pass
-
-    def record_callback(self, num_frames=150):
-        """Wrapper to handle recording result"""
+        if self.detection_loop is None:
+            return
         try:
-            output_path = self.record_stream(num_frames)
-            if output_path:
-                print_time(f"Recording saved to: {output_path}")
+            asyncio.run_coroutine_threadsafe(self.detection_queue.put(frame.copy()), self.detection_loop)
+        except Exception:
+            pass
 
+    # Recording
+    def _record_thread_wrapper(self, num_frames):
+        try:
+            output = self.record_stream(num_frames)
+            if output:
+                print_time(f"Recording saved to: {output}")
                 try:
-                    # Run the async handler in a dedicated event loop for this thread.
-                    # Creating a new loop here avoids NameError or attempting to reuse
-                    # an event loop that may be running elsewhere in the process.
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    loop.run_until_complete(handle_train_detected(str(output_path)))
-                    print_time("Slack notification sent successfully")
+                    loop.run_until_complete(handle_train_detected(str(output)))
+                    print_time("Slack notification sent")
                 except Exception as e:
-                    print_time(f"Error sending Slack notification: {e}")
+                    print_time(f"Notification error: {e}")
                 finally:
                     try:
                         loop.close()
                     except Exception:
                         pass
             else:
-                print_time("Recording failed")
+                print_time("Recording failed or produced no file")
         except Exception as e:
-            # Catch any unhandled exception inside the recorder so the background
-            # thread doesn't terminate with an exception that could be confusing.
-            print_time(f"Unhandled exception in record_callback: {e}")
+            print_time(f"Recording thread exception: {e}")
+        finally:
+            self._recording_in_progress = False
 
     def record_stream(self, num_frames=150):
-        """
-        Records a specified number of frames to an MP4 file.
-        
-        Args:
-            num_frames (int): Number of frames to record (default: 150)
-        """
         try:
-            detections_dir = Path("detections")
-            detections_dir.mkdir(exist_ok=True)
-
+            detections_dir = Path('detections')
+            detections_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             output_path = detections_dir / f"train_detection_{timestamp}.mp4"
-            
-            print_time(f"Starting recording: {output_path}")
+
+            print_time(f"Starting recording -> {output_path}")
 
             fourcc = cv.VideoWriter_fourcc(*'mp4v')
             fps = 30.0
             writer = None
-            
-            frames_recorded = 0
-            timeout_start = time.time()
-            timeout_seconds = 30
-            
-            while frames_recorded < num_frames and self.running:
-                if time.time() - timeout_start > timeout_seconds:
-                    print_time(f"Recording timeout after {timeout_seconds}s, saved {frames_recorded} frames")
+
+            frames_written = 0
+            start = time.time()
+            timeout = 30
+
+            while frames_written < num_frames and self.running:
+                if time.time() - start > timeout:
+                    print_time(f"Recording timed out after {timeout}s, wrote {frames_written} frames")
                     break
 
-                frame = None
                 with self.buffer_lock:
-                    if self.frame_buffer:
-                        frame = self.frame_buffer[-1][0].copy()  # Make a copy of the newest frame
+                    frame = (self.frame_buffer[-1][0].copy() if self.frame_buffer else None)
 
                 if frame is None:
                     time.sleep(0.01)
                     continue
-                
-                if writer is None:
-                    height, width = frame.shape[:2]
-                    writer = cv.VideoWriter(str(output_path), fourcc, fps, (width, height))
-                    
-                    if not writer.isOpened():
-                        print_time(f"Failed to open video writer for {output_path}")
-                        return
-                
-                writer.write(frame)
-                frames_recorded += 1
 
+                if writer is None:
+                    h, w = frame.shape[:2]
+                    writer = cv.VideoWriter(str(output_path), fourcc, fps, (w, h))
+                    if not writer.isOpened():
+                        print_time(f"Unable to open writer for {output_path}")
+                        return None
+
+                writer.write(frame)
+                frames_written += 1
                 time.sleep(1.0 / fps)
 
             if writer is not None:
                 writer.release()
-                print_time(f"Recording complete: {frames_recorded} frames saved to {output_path}")
+                print_time(f"Recording complete: {frames_written} frames -> {output_path}")
                 return output_path
-            else:
-                print_time("Recording failed: Could not initialize video writer")
-                return None
-                
-        except Exception as e:
-            print_time(f"Recording error: {e}")
-            if 'writer' in locals() and writer is not None:
-                writer.release()
             return None
-
-    def _record_thread_wrapper(self, num_frames):
-        """Wrapper to run record_callback and ensure _recording_in_progress flag cleared."""
-        try:
-            self.record_callback(num_frames)
         except Exception as e:
-            # Log unexpected exceptions from the recording thread
-            print_time(f"Exception in recording thread: {e}")
-        finally:
+            print_time(f"Record error: {e}")
             try:
-                self._recording_in_progress = False
+                if writer is not None:
+                    writer.release()
             except Exception:
                 pass
-    
-    def get_average_incoming_fps(self):
-        """Calculate average incoming FPS over the last 10 seconds."""
-        if len(self.incoming_frame_timestamps) < 2:
-            return 0.0
+            return None
 
-        duration = self.incoming_frame_timestamps[-1] - self.incoming_frame_timestamps[0]
-        if duration == 0:
-            return 0.0
-
-        return len(self.incoming_frame_timestamps) / duration
-
+    # Capture / Buffer
     def connect(self):
-        """Connect to the stream"""
         print_time("Connecting to stream...")
         self.cap = cv.VideoCapture(self.url)
-        
-        if not self.cap.isOpened():
+        if not self.cap or not self.cap.isOpened():
             print_time("Cannot open stream")
             return False
-            
-        self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
-        
-        print_time("Stream opened successfully!")
+        try:
+            self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+        print_time("Stream opened")
         return True
-    
+
     def read_frames(self):
-        """Background thread to continuously read frames"""
         consecutive_failures = 0
-        last_read_time = time.time()
-        
+        last_success = time.time()
         while self.running:
             if self.cap is None:
                 time.sleep(0.1)
                 continue
-                
+
             try:
                 ret, frame = self.cap.read()
-            except cv.error as e:
-                print_time(f"Caught OpenCV exception during read: {e}")
-                ret = False
-                frame = None
-            
-            current_time = time.time()
-            
-            if ret:
+            except Exception as e:
+                print_time(f"OpenCV read error: {e}")
+                ret, frame = False, None
+
+            now = time.time()
+            if ret and frame is not None:
                 with self.buffer_lock:
-                    self.frame_buffer.append((frame, current_time))
-                    self.frames_read += 1
+                    self.frame_buffer.append((frame, now))
+                    self.incoming_frame_timestamps.append(now)
+                    while self.incoming_frame_timestamps and self.incoming_frame_timestamps[0] < now - 10:
+                        self.incoming_frame_timestamps.popleft()
 
-                # Track timestamps of incoming frames
-                self.incoming_frame_timestamps.append(current_time)
-
-                # Remove timestamps older than 10 seconds
-                ten_seconds_ago = current_time - 10
-                while self.incoming_frame_timestamps and self.incoming_frame_timestamps[0] < ten_seconds_ago:
-                    self.incoming_frame_timestamps.popleft()
-
-                
+                self.frames_read += 1
                 consecutive_failures = 0
-                last_read_time = current_time
-                
-                # Dynamic sleep time based on buffer fullness
-                buffer_size = len(self.frame_buffer)
-                sleep_time = max(0.001, (buffer_size / BUFFER_MAXLEN) * 0.05)
-                time.sleep(sleep_time)
-                    
+                last_success = now
+                bs = len(self.frame_buffer)
+                time.sleep(max(0.001, (bs / float(self.frame_buffer.maxlen)) * 0.05))
             else:
                 consecutive_failures += 1
                 if consecutive_failures > 15:
-                    print_time("Too many read failures, attempting reconnect...")
+                    print_time("Too many read failures, attempting reconnect")
                     self.reconnect("Read failures")
                     consecutive_failures = 0
-                elif current_time - last_read_time > 5.0:
-                    print_time("No frames received for 5 seconds, reconnecting...")
+                elif now - last_success > 5.0:
+                    print_time("No frames for 5s, reconnecting")
                     self.reconnect("No frames timeout")
-                    last_read_time = current_time
-                
+                    last_success = now
                 time.sleep(0.1)
-    
-    def reconnect(self, reason="Manual reconnect"):
-        """Reconnect to the stream with better error handling"""
-        # Prevent multiple simultaneous reconnections
-        if hasattr(self, '_reconnecting') and self._reconnecting:
-            print_time(f"Reconnection already in progress, skipping ({reason})")
+
+    def reconnect(self, reason="manual"):
+        if getattr(self, '_reconnecting', False):
+            print_time(f"Reconnection already in progress ({reason})")
             return False
-        
         self._reconnecting = True
-        
         try:
             if self.cap:
-                self.cap.release()
-            
-            print_time(f"Reconnecting... ({reason})")
+                try:
+                    self.cap.release()
+                except Exception:
+                    pass
+            print_time(f"Reconnecting: {reason}")
             time.sleep(2)
-            
-            # Try reconnection multiple times
-            max_attempts = 3
-            for attempt in range(max_attempts):
-                print_time(f"Connection attempt {attempt + 1}/{max_attempts}")
-                
+            for attempt in range(3):
+                print_time(f"Reconnect attempt {attempt+1}/3")
                 self.cap = cv.VideoCapture(self.url)
-                
-                if self.cap.isOpened():
-                    self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
-                    print_time("Reconnected successfully")
-                    
+                if self.cap and self.cap.isOpened():
+                    try:
+                        self.cap.set(cv.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception:
+                        pass
                     with self.buffer_lock:
                         self.frame_buffer.clear()
                     self.buffering = True
-                    self.last_refresh_time = time.time()
-                    
                     self._reconnecting = False
+                    print_time("Reconnected")
                     return True
-                else:
-                    print_time(f"Connection attempt {attempt + 1} failed")
-                    time.sleep(3)  # Wait longer between attempts
-            
+                time.sleep(3)
             print_time("All reconnection attempts failed")
-            self._reconnecting = False
             return False
-            
         except Exception as e:
-            print_time(f"Exception during reconnection: {e}")
-            self._reconnecting = False
+            print_time(f"Reconnect exception: {e}")
             return False
-    
+        finally:
+            self._reconnecting = False
+
     def scale_frame(self, frame):
-        """Scale frame according to settings"""
         if frame is None:
             return None
-            
         if self.original_size is None:
             self.original_size = (frame.shape[1], frame.shape[0])
-        
-        if self.scale_factor == 1.0 and self.target_width is None and self.target_height is None:
-            return frame
-        
-        if self.target_width is not None and self.target_height is not None:
-            new_width, new_height = self.target_width, self.target_height
-        elif self.target_width is not None:
-            aspect_ratio = frame.shape[0] / frame.shape[1]
-            new_width = self.target_width
-            new_height = int(self.target_width * aspect_ratio)
-        elif self.target_height is not None:
-            aspect_ratio = frame.shape[1] / frame.shape[0]
-            new_height = self.target_height
-            new_width = int(self.target_height * aspect_ratio)
+        if self.target_width and self.target_height:
+            new_w, new_h = self.target_width, self.target_height
+        elif self.target_width:
+            ar = frame.shape[0] / frame.shape[1]
+            new_w = self.target_width
+            new_h = int(self.target_width * ar)
+        elif self.target_height:
+            ar = frame.shape[1] / frame.shape[0]
+            new_h = self.target_height
+            new_w = int(self.target_height * ar)
         else:
-            new_width = int(frame.shape[1] * self.scale_factor)
-            new_height = int(frame.shape[0] * self.scale_factor)
-        
-        scaled_frame = cv.resize(frame, (new_width, new_height), interpolation=cv.INTER_LINEAR)
-        return scaled_frame
-    
+            new_w = int(frame.shape[1] * self.scale_factor)
+            new_h = int(frame.shape[0] * self.scale_factor)
+        try:
+            return cv.resize(frame, (new_w, new_h), interpolation=cv.INTER_LINEAR)
+        except Exception:
+            return frame
+
     def get_frame(self):
-        """Get a frame from buffer with smart buffering"""
         with self.buffer_lock:
-            buffer_size = len(self.frame_buffer)
-            
-            if self.buffering and buffer_size < self.min_buffer_size:
+            bs = len(self.frame_buffer)
+            if self.buffering and bs < MIN_BUFFER_SIZE:
                 return None, True
-            elif self.buffering and buffer_size >= self.min_buffer_size:
+            if self.buffering and bs >= MIN_BUFFER_SIZE:
                 self.buffering = False
-                print_time(f"Buffering complete, starting playback with {buffer_size} frames")
-            
-            if not self.buffering and buffer_size < 3:
+                print_time(f"Buffering complete ({bs} frames)")
+            if not self.buffering and bs < 3:
                 self.buffering = True
                 print_time("Buffer underrun, rebuffering...")
                 return None, True
-            
-            if buffer_size > 0:
-                frame_data = self.frame_buffer.popleft()
-                return frame_data[0], False # Return frame and buffering status
-            
+            if bs > 0:
+                frame, ts = self.frame_buffer.popleft()
+                return frame, False
             return None, False
 
     def update_bounding_box(self, image):
-        """
-        Draws a single bounding box on the image based on self variables.
-
-        Args:
-            image (numpy.ndarray): The image to draw on.
-        """
-        if self.boxColor is None or self.boxCoordinates is None:
+        if self.box_color is None or self.box_coordinates is None:
             return
-
-        x1, y1, x2, y2 = self.boxCoordinates
-
-        cv.rectangle(image, (x1, y1), (x2, y2), self.boxColor, BOUNDING_BOX_WEIGHT)
-
-        label = f"Train: {self.train_detected_confedence:.2f}"
-
-        (text_width, text_height), baseline = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-
-        cv.rectangle(image, (x1, y1 - text_height - baseline), (x1 + text_width, y1), self.boxColor, -1)
-
-        cv.putText(image, label, (x1, y1 - baseline), cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        x1, y1, x2, y2 = self.box_coordinates
+        cv.rectangle(image, (x1, y1), (x2, y2), self.box_color, BOUNDING_BOX_WEIGHT)
+        label = f"Train: {self.train_detected_confidence:.2f}"
+        (tw, th), baseline = cv.getTextSize(label, FONT_HERSHEY, 0.5, 1)
+        cv.rectangle(image, (x1, y1 - th - baseline), (x1 + tw, y1), self.box_color, -1)
+        cv.putText(image, label, (x1, y1 - baseline), FONT_HERSHEY, 0.5, (0, 0, 0), 1)
 
     def start(self):
-        """Start the streaming"""
         if not self.connect():
             return
-        
         self.running = True
-        last_display_time = time.time()
-        frame_interval = 1.0 / DISPLAY_FPS  # Set fixed frame interval
-
         self.read_thread = threading.Thread(target=self.read_frames, daemon=True)
         self.read_thread.start()
-        
         self.start_async_detection()
-        
-        print_time("Press 'q' to quit, 's' to show/hide stats, 'r' to refresh stream, 'd' to toggle detection")
-        print_time(f"Auto-refresh enabled every {self.refresh_interval/60:.1f} minutes")
-        print_time(f"Async frame detection enabled every {self.detection_interval} seconds")
-        print_time("Buffering initial frames...")
-        
-        # Wait for the first frame to be available
+
+        print_time("Press 'q' to quit, 's' toggle stats, 'r' refresh, 'd' toggle detection")
+
         while self.running:
             frame, is_buffering = self.get_frame()
             if frame is not None:
                 cv.imshow('HLS Stream', frame)
                 cv.waitKey(1)
                 break
-            else:
-                print_time("Waiting for first frame...")
-                time.sleep(0.5)
+            print_time("Waiting for first frame...")
+            time.sleep(0.5)
 
-        if not self.running:
-            return
+        last_display = time.time()
 
         while self.running:
-            current_time = time.time()
-            buffer_size = len(self.frame_buffer)
-            
-            # Dynamic FPS calculation based on buffer size
-            if buffer_size <= BUFFER_CRITICAL:
-                target_fps = MAX_PLAYBACK_FPS  # SPEED UP TO CATCH UP
-            elif buffer_size >= BUFFER_OPTIMAL:
+            now = time.time()
+            bs = len(self.frame_buffer)
+            if bs <= BUFFER_CRITICAL:
+                target_fps = MAX_PLAYBACK_FPS
+            elif bs >= BUFFER_OPTIMAL:
                 target_fps = MAX_PLAYBACK_FPS
             else:
-                # Linear interpolation between min and max FPS based on buffer size
-                buffer_ratio = (buffer_size - BUFFER_CRITICAL) / (BUFFER_OPTIMAL - BUFFER_CRITICAL)
-                target_fps = MIN_PLAYBACK_FPS + buffer_ratio * (MAX_PLAYBACK_FPS - MIN_PLAYBACK_FPS)
-            
-            frame_interval = 1.0 / target_fps
-            elapsed_since_display = current_time - last_display_time
-            
-            # Sleep to maintain adaptive frame rate
-            if elapsed_since_display < frame_interval:
-                time.sleep(frame_interval - elapsed_since_display)
-            
+                ratio = (bs - BUFFER_CRITICAL) / float(max(1, BUFFER_OPTIMAL - BUFFER_CRITICAL))
+                target_fps = MIN_PLAYBACK_FPS + ratio * (MAX_PLAYBACK_FPS - MIN_PLAYBACK_FPS)
+
+            frame_interval = 1.0 / max(1.0, target_fps)
+            elapsed = now - last_display
+            if elapsed < frame_interval:
+                time.sleep(frame_interval - elapsed)
+
             frame, is_buffering = self.get_frame()
-            
             if frame is not None:
                 frame = self.scale_frame(frame)
-                
-                # Mask logo in corner
                 h, w = frame.shape[:2]
                 cv.rectangle(frame, (w - 100, h - 60), (w, h), (64, 64, 64), -1)
 
-                
-                if (self.detection_enabled and 
-                    current_time - self.last_detection_time >= self.detection_interval):
-
+                if self.detection_enabled and (now - self.last_detection_time) >= self.detection_interval:
                     self.add_frame_for_detection(frame)
-                    self.last_detection_time = current_time
+                    self.last_detection_time = now
 
-                
                 self.frames_displayed += 1
-
                 self.update_bounding_box(frame)
-                
+
                 if self.show_stats:
-                    elapsed = current_time - self.start_time
-                    display_fps = self.frames_displayed / elapsed if elapsed > 0 else 0
-                    buffer_size = len(self.frame_buffer)
-                    
-                    text_scale = STATS_FONT_SCALE
-                    text_thickness = STATS_FONT_THICKNESS
+                    elapsed_total = now - self.start_time
+                    display_fps = (self.frames_displayed / elapsed_total) if elapsed_total > 0 else 0.0
                     bottom_y = frame.shape[0] - 10
-                    
-                    cv.putText(frame, f"FPS: {display_fps:.1f}", (10, bottom_y),
-                                cv.FONT_HERSHEY_SIMPLEX, text_scale, STATS_COLOR_FPS, text_thickness)
-                    
-                    (fps_w, fps_h), _ = cv.getTextSize(f"FPS: {display_fps:.1f}", FONT_HERSHEY, text_scale, text_thickness)
-                    (buffer_w, buffer_h), _ = cv.getTextSize(f"Buffer: {buffer_size}", FONT_HERSHEY, text_scale, text_thickness)
-                    
-                    cv.putText(frame, f"Buffer: {buffer_size}", (10, bottom_y - fps_h - 10),
-                                FONT_HERSHEY, text_scale, STATS_COLOR_BUFFER, text_thickness)
-                    
+                    cv.putText(frame, f"FPS: {display_fps:.1f}", (10, bottom_y), FONT_HERSHEY, STATS_FONT_SCALE, STATS_COLOR_FPS, STATS_FONT_THICKNESS)
+                    cv.putText(frame, f"Buffer: {bs}", (10, bottom_y - 20), FONT_HERSHEY, STATS_FONT_SCALE, STATS_COLOR_BUFFER, STATS_FONT_THICKNESS)
                     if self.original_size:
                         size_text = f"Size: {self.original_size[0]}x{self.original_size[1]} -> {frame.shape[1]}x{frame.shape[0]}"
-                        (size_w, size_h), _ = cv.getTextSize(size_text, FONT_HERSHEY, 0.5, 1)
-                        cv.putText(frame, size_text, (10, bottom_y - fps_h - buffer_h - 20),
-                                    FONT_HERSHEY, 0.5, STATS_COLOR_SIZE, 1)
-                    
-                    detection_text = f"Detection: {'ON' if self.detection_enabled else 'OFF'} ({self.detection_interval}s, ASYNC)"
-                    (det_w, det_h), _ = cv.getTextSize(detection_text, FONT_HERSHEY, 0.5, 1)
-                    cv.putText(frame, detection_text, (10, bottom_y - fps_h - buffer_h - size_h - 30),
-                                FONT_HERSHEY, 0.5, STATS_COLOR_DETECTION, 1)
-                    
+                        cv.putText(frame, size_text, (10, bottom_y - 40), FONT_HERSHEY, 0.5, STATS_COLOR_SIZE, 1)
+                    det_text = f"Detection: {'ON' if self.detection_enabled else 'OFF'} ({self.detection_interval}s, ASYNC)"
+                    cv.putText(frame, det_text, (10, bottom_y - 60), FONT_HERSHEY, 0.5, STATS_COLOR_DETECTION, 1)
                     if is_buffering:
-                        buffering_text = "BUFFERING..."
-                        (buff_w, buff_h), _ = cv.getTextSize(buffering_text, FONT_HERSHEY, text_scale, text_thickness)
-                        cv.putText(frame, buffering_text, (10, bottom_y - fps_h - buffer_h - size_h - det_h - 40),
-                                    FONT_HERSHEY, text_scale, STATS_COLOR_BUFFERING, text_thickness)
-                
+                        cv.putText(frame, "BUFFERING...", (10, bottom_y - 80), FONT_HERSHEY, STATS_FONT_SCALE, STATS_COLOR_BUFFERING, STATS_FONT_THICKNESS)
+
                 cv.imshow('HLS Stream', frame)
-                last_display_time = time.time()
-            
+                last_display = time.time()
             elif is_buffering:
-                if int(current_time) % 2 == 0:
-                    buffer_size = len(self.frame_buffer)
                 time.sleep(0.1)
-            
             else:
                 time.sleep(0.01)
-            
+
             key = cv.waitKey(WAITKEY_DELAY_MS) & 0xFF
-            
             if key == ord('q') or cv.getWindowProperty('HLS Stream', cv.WND_PROP_VISIBLE) < 1:
                 break
             elif key == ord('s'):
                 self.show_stats = not self.show_stats
-                print_time(f"Stats display: {'ON' if self.show_stats else 'OFF'}")
+                print_time(f"Stats: {'ON' if self.show_stats else 'OFF'}")
             elif key == ord('r'):
-                print_time("Manual refresh requested")
-                self.reconnect("Manual refresh")
+                print_time('Manual refresh')
+                self.reconnect('Manual refresh')
             elif key == ord('d'):
                 self.detection_enabled = not self.detection_enabled
-                print_time(f"Frame detection: {'ON' if self.detection_enabled else 'OFF'}")
-        
+                print_time(f"Detection: {'ON' if self.detection_enabled else 'OFF'}")
+
         self.stop()
-    
+
     def stop(self):
-        """Stop streaming and cleanup"""
-        print_time("Stopping stream...")
+        print_time('Stopping stream...')
         self.running = False
-        
-        if self.detection_task and self.detection_loop and not self.detection_loop.is_closed():
-            future = asyncio.run_coroutine_threadsafe(
-                self._cancel_async_detection(), 
-                self.detection_loop
-            )
+        if self.detection_task and self.detection_loop:
             try:
-                future.result(timeout=2.0)
-            except (asyncio.TimeoutError, RuntimeError):
+                asyncio.run_coroutine_threadsafe(self._cancel_async_detection(), self.detection_loop).result(timeout=2.0)
+            except Exception:
                 pass
-        
+
         if self.read_thread and self.read_thread.is_alive():
             self.read_thread.join(timeout=3)
-        
         if self.detection_thread and self.detection_thread.is_alive():
             self.detection_thread.join(timeout=3)
-        
         if self.cap:
-            self.cap.release()
-        
-        cv.destroyAllWindows()
-        print_time("Stream closed.")
-    
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+        # Shutdown the inference executor
+        try:
+            self._inference_executor.shutdown(wait=False)
+        except Exception:
+            pass
+        try:
+            cv.destroyAllWindows()
+        except Exception:
+            pass
+        print_time('Stream closed.')
+
     async def _cancel_async_detection(self):
-        """Helper to cancel async detection task"""
         if self.detection_task:
             self.detection_task.cancel()
             try:
                 await self.detection_task
             except asyncio.CancelledError:
                 pass
-        
-if __name__ == "__main__":
-    
+
+if __name__ == '__main__':
     streamer = HLSStreamer(STREAM_URL)
-    
     try:
         streamer.start()
     except KeyboardInterrupt:
-        print_time("\nInterrupted by user")
+        print_time('\nInterrupted by user')
         streamer.stop()

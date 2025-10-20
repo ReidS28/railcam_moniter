@@ -1,7 +1,7 @@
 {
 	"general_settings": {
 		"stream_settings": {
-			"stream_name": "CPT_CAM01",
+			"stream_name": "BIM_CAM02",
 			"streams": [
 				{
 					"name": "CPT_CAM01",
