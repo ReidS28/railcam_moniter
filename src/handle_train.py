@@ -132,19 +132,20 @@ async def handle_train_detected(video_path):
         print_time(f"Failed to open video file: {video_path}", 'red')
         return []
 
-    detections_data = get_bounding_boxes(cap, model, start_frame, end_frame)
+    #detections_data = get_bounding_boxes(cap, model, start_frame, end_frame)
 
-    best_frame_index = get_best_frame_index(detections_data)
+    #best_frame_index = get_best_frame_index(detections_data)
 
-    if best_frame_index == -1:
-        print_time(f"No train detected in video: {video_path}", 'red')
-        fallback_message = f"{message}\nFailed to find best frame."
-        try:
-            await send_slack_message(fallback_message)
-        except Exception as e:
-            print_time(f"Failed to send fallback Slack message: {e}", 'red')
-        return
+    #if best_frame_index == -1:
+    #    print_time(f"No train detected in video: {video_path}", 'red')
+    #    fallback_message = f"{message}\nFailed to find best frame."
+    #    try:
+    #        await send_slack_message(fallback_message)
+    #    except Exception as e:
+    #        print_time(f"Failed to send fallback Slack message: {e}", 'red')
+    #    return
 
+    best_frame_index = 0; #Just use the first frame
     frame = get_frame(video_path, best_frame_index)
 
     if frame is None:
