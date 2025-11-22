@@ -1,34 +1,84 @@
 import cv2
-import queue
+import threading
 import time
-from config import STREAM_URL, MAX_QUEUE_SIZE
 
-raw_frame_queue = queue.Queue(maxsize=MAX_QUEUE_SIZE)
-
-def stream_reader():
-    """Reads frames from the m3u8 stream and puts them into a queue."""
-    print(f"Stream Reader started. Connecting to: {STREAM_URL}")
+class StreamHandler(threading.Thread):
+    """
+    A class to read frames from a video stream in a separate thread.
     
-    cap = cv2.VideoCapture(STREAM_URL)
-    if not cap.isOpened():
-        print("ERROR: Could not open video stream.")
-        return
+    This "producer" thread continuously reads frames from the specified
+    stream URL and updates a shared dictionary with the latest frame,
+    protected by a lock.
+    """
+    def __init__(self, config, shared_data, data_lock):
+        """
+        Initializes the stream handler.
 
-    while True:
-        ret, frame = cap.read()
+        Args:
+            config (configparser.ConfigParser): Configuration object.
+            shared_data (dict): A dictionary shared between threads.
+            data_lock (threading.Lock): A lock to ensure thread-safe
+                                        access to shared_data.
+        """
+        super().__init__()
+        self.stream_url = config.get('Stream', 'url')
+        self.shared_data = shared_data
+        self.data_lock = data_lock
         
-        if not ret:
-            print("Stream ended or error reading frame. Restarting stream...")
-            time.sleep(5)
-            cap.release()
-            cap = cv2.VideoCapture(STREAM_URL)
-            continue
+        # A flag to signal the thread to stop
+        self.running = True
         
-        # Drop oldest frame if queue is full to prevent lag
-        if raw_frame_queue.full():
+        print(f"StreamHandler initialized for URL: {self.stream_url}")
+
+    def run(self):
+        """
+        The main loop of the thread.
+        Connects to the stream and continuously reads frames.
+        """
+        print("StreamHandler thread started.")
+        
+        cap = None
+        while self.running:
             try:
-                raw_frame_queue.get_nowait()
-            except queue.Empty:
-                pass
-        
-        raw_frame_queue.put(frame)
+                if cap is None:
+                    print("Connecting to stream...")
+                    cap = cv2.VideoCapture(self.stream_url)
+                    if not cap.isOpened():
+                        print("Error: Could not open stream. Retrying in 5s...")
+                        cap = None
+                        time.sleep(5)
+                        continue
+                    else:
+                        print("Stream opened successfully.")
+
+                ret, frame = cap.read()
+
+                if not ret:
+                    print("Error: Failed to grab frame or stream ended. Reconnecting...")
+                    cap.release()
+                    cap = None
+                    time.sleep(1) # Wait a bit before reconnecting
+                    continue
+
+                # We have a valid frame, update the shared data
+                with self.data_lock:
+                    self.shared_data['latest_frame'] = frame
+
+            except Exception as e:
+                print(f"An error occurred in StreamHandler: {e}")
+                if cap:
+                    cap.release()
+                cap = None
+                time.sleep(5) # Wait before retrying
+
+        # Cleanup when the loop is stopped
+        if cap:
+            cap.release()
+        print("StreamHandler thread stopped.")
+
+    def stop(self):
+        """
+_        Signals the thread to stop.
+        """
+        print("Stopping StreamHandler...")
+        self.running = False

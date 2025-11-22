@@ -1,102 +1,87 @@
-"""Railstream Monitor UI: Video scales to fill container while preserving aspect ratio."""
-
-import cv2
-import time
-import threading
-import numpy as np
 import dearpygui.dearpygui as dpg
-from stream_handler import raw_frame_queue
+import numpy as np
+import cv2
 
-def _frame_updater(texture_tag: str, image_tag: str, base_size=(640, 360)):
-    """Thread that updates the video texture and resizes the image widget to fill container."""
-    base_w, base_h = base_size
-    aspect_ratio = base_w / base_h
+class StreamUI:
+    def __init__(self, config):
+        self.title = config.get('UI', 'title')
+        self.width = config.getint('UI', 'width')
+        self.height = config.getint('UI', 'height')
+        
+        self.texture_id = "stream_texture"
+        self.image_id = "stream_image"
+        self.registry_id = "stream_texture_registry"
 
-    while dpg.is_dearpygui_running():
-        try:
-            frame = raw_frame_queue.get(timeout=1)
-        except Exception:
-            continue
-        if frame is None:
-            continue
+        self._current_frame_dims = (0, 0)
 
-        try:
-            # Get container size
-            container_w = dpg.get_item_width("video_container")
-            container_h = dpg.get_item_height("video_container")
+    def _convert_frame_to_texture_data(self, frame):
+        frame_rgba = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+        return (frame_rgba.astype(np.float32) / 255.0)
 
-            if container_w <= 0 or container_h <= 0:
-                container_w, container_h = base_w, base_h
+    def create_ui(self):
+        dpg.create_context()
 
-            # Calculate scaled size maintaining aspect ratio
-            scale_w = container_w
-            scale_h = int(scale_w / aspect_ratio)
-            if scale_h > container_h:
-                scale_h = container_h
-                scale_w = int(scale_h * aspect_ratio)
+        placeholder = np.zeros((self.height, self.width, 4), dtype=np.float32)
 
-            # Resize the frame
-            resized = cv2.resize(frame, (scale_w, scale_h))
-            rgba = cv2.cvtColor(resized, cv2.COLOR_BGR2RGBA)
-            arr = rgba.astype(np.float32) / 255.0
-            flat = arr.flatten()
+        with dpg.texture_registry(show=False, tag=self.registry_id):
+            dpg.add_dynamic_texture(
+                width=self.width,
+                height=self.height,
+                default_value=placeholder,
+                tag=self.texture_id
+            )
 
-            # Update the dynamic texture
-            dpg.set_value(texture_tag, flat)
-            # Update image widget size
-            dpg.configure_item(image_tag, width=scale_w, height=scale_h)
+        with dpg.window(tag="Primary Window"):
+            dpg.add_image(
+                self.texture_id,
+                tag=self.image_id,
+                width=self.width,
+                height=self.height
+            )
 
-        except Exception:
-            pass
+        dpg.create_viewport(title=self.title, width=self.width, height=self.height)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        dpg.set_primary_window("Primary Window", True)
 
-        try:
-            raw_frame_queue.task_done()
-        except Exception:
-            pass
+    def update_frame(self, frame):
+        h, w, _ = frame.shape
+        frame_dims = (w, h)
 
+        texture_data = self._convert_frame_to_texture_data(frame)
 
-def start_gui():
-    """Start DearPyGui window with a video that fills container while preserving aspect ratio."""
-    dpg.create_context()
-    dpg.create_viewport(title="Railstream Monitor", width=920, height=560)
+        if frame_dims != self._current_frame_dims:
+            print(f"Resizing texture from {self._current_frame_dims} to {frame_dims}")
+            
+            # Generate a new, unique ID for the texture
+            new_texture_id = dpg.generate_uuid()
 
-    # Theme
-    with dpg.theme() as global_theme:
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (18, 18, 18, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (28, 28, 28, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Header, (40, 120, 220, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (60, 60, 60, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (220, 220, 220, 255))
-    dpg.bind_theme(global_theme)
+            dpg.delete_item(self.texture_id)
+            
+            dpg.add_dynamic_texture(
+                width=w,
+                height=h,
+                default_value=texture_data,
+                tag=new_texture_id, # Use the new unique ID
+                parent=self.registry_id
+            )
+            
+            # Point the image widget to the new texture
+            dpg.configure_item(self.image_id, texture_tag=new_texture_id, width=w, height=h)
+            
+            # Update self.texture_id to the new ID for the next resize
+            self.texture_id = new_texture_id
+            
+            self._current_frame_dims = frame_dims
+        else:
+            dpg.set_value(self.texture_id, texture_data)
 
-    base_w, base_h = 640, 360
-    blank = np.zeros((base_h, base_w, 4), dtype=np.float32).flatten()
-    with dpg.texture_registry(show=False):
-        dpg.add_dynamic_texture(base_w, base_h, blank, tag="video_tex")
+    def is_running(self):
+        return dpg.is_dearpygui_running()
 
-    # Main window
-    with dpg.window(label="Railstream Monitor", tag="main_window", width=900, height=520):
-        # Child container that takes full available space
-        with dpg.child_window(width=-1, height=-1, tag="video_container"):
-            dpg.add_image("video_tex", tag="video_image", width=base_w, height=base_h)
+    def render(self):
+        dpg.render_dearpygui_frame()
 
-    dpg.setup_dearpygui()
-    dpg.show_viewport()
-
-    # Start the video update thread
-    updater = threading.Thread(target=_frame_updater, args=("video_tex", "video_image", (base_w, base_h)), daemon=True)
-    updater.start()
-
-    # Set primary window
-    try:
-        dpg.set_primary_window("main_window", True)
-    except Exception:
-        pass
-
-    dpg.start_dearpygui()
-    dpg.destroy_context()
-
-
-if __name__ == "__main__":
-    start_gui()
+    def cleanup(self):
+        print("Cleaning up UI...")
+        dpg.destroy_context()
