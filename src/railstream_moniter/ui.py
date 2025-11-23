@@ -13,6 +13,8 @@ class StreamUI:
         self.registry_id = "stream_texture_registry"
 
         self.window_tag = "Video Window"
+        self.drawlist_id = "stream_drawlist"
+        self.draw_image_id = "stream_draw_image"
 
         self._current_frame_dims = (0, 0)
 
@@ -22,7 +24,6 @@ class StreamUI:
 
     def create_ui(self):
         dpg.create_context()
-
         placeholder = np.zeros((self.height, self.width, 4), dtype=np.float32)
 
         with dpg.texture_registry(show=False, tag=self.registry_id):
@@ -32,50 +33,73 @@ class StreamUI:
                 default_value=placeholder,
                 tag=self.texture_id
             )
-
         initial_window_height = self.height + 40
 
-        with dpg.window(tag=self.window_tag, label="Video Stream", width=self.width, height=initial_window_height): 
-            
-            dpg.add_image(
-                self.texture_id,
-                tag=self.image_id,
-                width=self.width,
+        with dpg.window(
+            tag=self.window_tag, 
+            label="Video Stream", 
+            width=self.width, 
+            height=initial_window_height,
+            no_close=True,
+            no_resize=True,
+            no_collapse=False
+        ):
+            with dpg.drawlist(
+                tag=self.drawlist_id,
+                width=self.width, 
                 height=self.height
-            )
+            ):
+                dpg.draw_image(
+                    self.texture_id,
+                    pmin=(0, 0),
+                    pmax=(self.width, self.height),
+                    tag=self.draw_image_id
+                )
 
         dpg.create_viewport(title=self.title, width=1280, height=720) 
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
     def update_frame(self, frame):
+        
         h, w, _ = frame.shape
+        if w == 0 or h == 0:
+            return
+        
         frame_dims = (w, h)
-
         texture_data = self._convert_frame_to_texture_data(frame)
 
+        new_texture_tag = self.texture_id
         if frame_dims != self._current_frame_dims:
-            print(f"Resizing texture from {self._current_frame_dims} to {frame_dims}")
-            
-            # Generate a new, unique ID for the texture
-            new_texture_id = dpg.generate_uuid()
+            print(f"Resizing texture and draw item for {frame_dims}")
 
+            new_texture_tag = dpg.generate_uuid()
             dpg.delete_item(self.texture_id)
-            
+
             dpg.add_dynamic_texture(
                 width=w,
                 height=h,
                 default_value=texture_data,
-                tag=new_texture_id, # Use the new unique ID
+                tag=new_texture_tag,
                 parent=self.registry_id
             )
+            scale = min(self.width / w, self.height / h)
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            x_offset = (self.width - new_w) // 2
+            y_offset = (self.height - new_h) // 2
             
-            # Point the image widget to the new texture
-            dpg.configure_item(self.image_id, texture_tag=new_texture_id, width=w, height=h)
-            
-            # Update self.texture_id to the new ID for the next resize
-            self.texture_id = new_texture_id
-            
+            pmin = (x_offset, y_offset)
+            pmax = (x_offset + new_w, y_offset + new_h)
+
+            dpg.configure_item(
+                self.draw_image_id, 
+                texture_tag=new_texture_tag, 
+                pmin=pmin, 
+                pmax=pmax
+            )
+
+            self.texture_id = new_texture_tag
             self._current_frame_dims = frame_dims
         else:
             dpg.set_value(self.texture_id, texture_data)
@@ -88,4 +112,4 @@ class StreamUI:
 
     def cleanup(self):
         print("Cleaning up UI...")
-        dpg.destroy_context()
+        dpg.destroy_context() 
