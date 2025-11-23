@@ -2,12 +2,10 @@ import configparser
 import threading
 import time
 import dearpygui.dearpygui as dpg
+import numpy as np
 
-# We assume you have imported StreamHandler and StreamUI correctly here
 from stream_handler import StreamHandler
 from ui import StreamUI 
-# Note: Since the full imports aren't visible, I'll use placeholders 
-# for brevity, but assume you have them.
 
 def load_config():
     config = configparser.ConfigParser()
@@ -17,7 +15,7 @@ def load_config():
 def main():
     config = load_config()
 
-    # --- Shared Data and Threading Setup ---
+    # Shared Data and Threading Setup
     data_lock = threading.Lock()
     shared_data = {'latest_frame': None}
 
@@ -25,19 +23,19 @@ def main():
     streamer.daemon = True 
     streamer.start()
 
-    # --- UI Setup ---
+    # UI Setup
     ui = StreamUI(config)
     ui.create_ui()
 
     print("UI loop starting. Close the window to exit.")
 
-    # --- Playback Timer Setup (Target 30 FPS) ---
-    TARGET_FPS = 30
+    # Playback Timer Setup
+    TARGET_FPS = 300# 30
     FRAME_DURATION_SEC = 1 / TARGET_FPS 
     
     last_render_time = time.time()
 
-    # --- Main UI Loop (Consumer) ---
+    # Main UI Loop (Consumer)
     while ui.is_running():
         
         current_time = time.time()
@@ -58,7 +56,7 @@ def main():
 
         time.sleep(0.001) 
 
-    # --- Cleanup ---
+    # Cleanup
     print("Window closed, stopping stream thread...")
     streamer.stop()
     streamer.join()
