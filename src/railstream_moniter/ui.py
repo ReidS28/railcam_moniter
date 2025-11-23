@@ -12,6 +12,8 @@ class StreamUI:
         self.image_id = "stream_image"
         self.registry_id = "stream_texture_registry"
 
+        self.window_tag = "Video Window"
+
         self._current_frame_dims = (0, 0)
 
     def _convert_frame_to_texture_data(self, frame):
@@ -31,7 +33,10 @@ class StreamUI:
                 tag=self.texture_id
             )
 
-        with dpg.window(tag="Primary Window"):
+        initial_window_height = self.height + 40
+
+        with dpg.window(tag=self.window_tag, label="Video Stream", width=self.width, height=initial_window_height): 
+            
             dpg.add_image(
                 self.texture_id,
                 tag=self.image_id,
@@ -39,10 +44,9 @@ class StreamUI:
                 height=self.height
             )
 
-        dpg.create_viewport(title=self.title, width=self.width, height=self.height)
+        dpg.create_viewport(title=self.title, width=1280, height=720) 
         dpg.setup_dearpygui()
         dpg.show_viewport()
-        dpg.set_primary_window("Primary Window", True)
 
     def update_frame(self, frame):
         h, w, _ = frame.shape
