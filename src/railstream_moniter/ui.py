@@ -49,7 +49,6 @@ class StreamUI:
 
         if(w != 0 and h != 0):
 
-            ratio = w / h
             scale = min(drawlist_width / w, drawlist_height / h)
             new_w = int(w * scale)
             new_h = int(h * scale)
@@ -59,16 +58,11 @@ class StreamUI:
             pmin = (x_offset, y_offset)
             pmax = (x_offset + new_w, y_offset + new_h)
 
-            #pmin = (0, 0)
-            #pmax = (new_w, new_h)
-
             dpg.configure_item(
                 self.draw_image_id, 
                 pmin = pmin,
                 pmax = pmax
             )
-
-        print_time(f"Width: {drawlist_width}, Height: {drawlist_height}")
 
     def create_ui(self):
         dpg.create_context()
@@ -85,8 +79,8 @@ class StreamUI:
         with dpg.window( # Inner Window
             tag=self.window_tag, 
             label="Video Stream", 
-            width=self.width * 0.6,
-            height=self.height * 0.6,
+            width=self.width * 0.8,
+            height=self.height * 0.8,
             no_close=True,
             no_resize=False,
             no_collapse=False
@@ -113,10 +107,8 @@ class StreamUI:
                 )
 
         with dpg.item_handler_registry(tag="window_resize_handler_reg"):
-            # Add a resize handler to the registry
             dpg.add_item_resize_handler(callback=self._on_window_resize)
-        
-        # Bind the registry to your window
+
         dpg.bind_item_handler_registry(self.window_tag, "window_resize_handler_reg")
 
         dpg.create_viewport(title=self.title, width=1280, height=720) 
@@ -146,19 +138,10 @@ class StreamUI:
                 tag=new_texture_tag,
                 parent=self.registry_id
             )
-            #scale = min(self.width / w, self.height / h)
-            #new_w = int(w * scale)
-            #new_h = int(h * scale)
-            #x_offset = (self.width - new_w) // 2
-            #y_offset = (self.height - new_h) // 2
-            #
-            #pmin = (x_offset, y_offset)
-            #pmax = (x_offset + new_w, y_offset + new_h)
 
             drawlist_width = dpg.get_item_rect_size(self.drawlist_id)[0]
             drawlist_height = dpg.get_item_rect_size(self.drawlist_id)[1]
 
-            # Fallback just in case (shouldn't be needed, but safe)
             if drawlist_width == 0: drawlist_width = self.width
             if drawlist_height == 0: drawlist_height = self.height
 
@@ -166,7 +149,7 @@ class StreamUI:
                 self.draw_image_id, 
                 texture_tag=new_texture_tag, 
                 pmin=(0, 0), 
-                pmax=(drawlist_width, drawlist_height) # Set pmax to the drawlist size
+                pmax=(drawlist_width, drawlist_height)
             )
 
             self.texture_id = new_texture_tag
