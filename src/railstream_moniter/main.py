@@ -30,7 +30,7 @@ def main():
     print("UI loop starting. Close the window to exit.")
 
     # Playback Timer Setup
-    TARGET_FPS = 30# 30
+    TARGET_FPS = 30
     FRAME_DURATION_SEC = 1 / TARGET_FPS 
     
     last_render_time = time.time()

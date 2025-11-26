@@ -31,25 +31,42 @@ class StreamUI:
             width = -1,
             height = -1
         )
-        
-        time.sleep(0.001)
+
+        dpg.split_frame()
 
         drawlist_size = dpg.get_item_rect_size(self.drawlist_id)
         drawlist_width = drawlist_size[0]
         drawlist_height = drawlist_size[1]
 
+        # This doesn't work unless it it told to be the size of itself
         dpg.configure_item(
             self.drawlist_id,
             width=drawlist_width,
             height=drawlist_height
         )
 
-        dpg.split_frame()
+        w, h = self._current_frame_dims
 
-        dpg.configure_item(
-            self.draw_image_id, 
-            pmax=(drawlist_width, drawlist_height)
-        )
+        if(w != 0 and h != 0):
+
+            ratio = w / h
+            scale = min(drawlist_width / w, drawlist_height / h)
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+            x_offset = (drawlist_width - new_w) // 2
+            y_offset = (drawlist_height - new_h) // 2
+            
+            pmin = (x_offset, y_offset)
+            pmax = (x_offset + new_w, y_offset + new_h)
+
+            #pmin = (0, 0)
+            #pmax = (new_w, new_h)
+
+            dpg.configure_item(
+                self.draw_image_id, 
+                pmin = pmin,
+                pmax = pmax
+            )
 
         print_time(f"Width: {drawlist_width}, Height: {drawlist_height}")
 
@@ -64,13 +81,12 @@ class StreamUI:
                 default_value=placeholder,
                 tag=self.texture_id
             )
-        initial_window_height = self.height + 40
 
         with dpg.window( # Inner Window
             tag=self.window_tag, 
             label="Video Stream", 
-            width=self.width,
-            height=initial_window_height,
+            width=self.width * 0.6,
+            height=self.height * 0.6,
             no_close=True,
             no_resize=False,
             no_collapse=False
@@ -78,24 +94,21 @@ class StreamUI:
             
             with dpg.drawlist(
                 tag=self.drawlist_id,
-                width=-1,#self.width, 
-                height=-1#self.height
+                width=-1,
+                height=-1
             ):
                 dpg.draw_rectangle(
                     pmin=(0, 0), 
-                    # pmax is set to a large value to ensure it covers the entire area.
-                    # This will be clipped by the drawlist boundaries.
-                    pmax=(9999, 9999), 
-                    color=(0, 0, 0, 0),  # Transparent border
-                    fill=(20, 30, 80, 255), # Dark Blue fill (RGBA)
-                    tag="drawlist_background_rect" # Give it a tag to configure it later
+                    pmax=(99999, 99999), 
+                    color=(0, 0, 0, 0),
+                    fill=(0, 0, 0, 100),
+                    tag="drawlist_background_rect"
                 )
                 
                 dpg.draw_image(
                     self.texture_id,
                     pmin=(0, 0),
-                    #pmax=(self.width, self.height),
-                    pmax=(300, 300),
+                    pmax=(0, 0),
                     tag=self.draw_image_id
                 )
 
