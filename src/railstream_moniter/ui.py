@@ -170,7 +170,6 @@ class StreamUI:
             dpg.set_value(self.texture_id, texture_data)
 
         # Detection Box
-        
         confidence = detection_result['confidence']
         box = detection_result['box']
         color = detection_result['color']
