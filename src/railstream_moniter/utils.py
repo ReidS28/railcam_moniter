@@ -10,7 +10,7 @@ class BoundingBoxColor(Enum):
     GREEN = (0, 255, 0, 255)
     YELLOW = (255, 255, 0, 255)
 
-def print_time(message, color='white', highlight_color=None, attrs=[]):
+def print_time(message = "", color='white', highlight_color=None, attrs=[]):
     """
     Print a message with timestamp in color
     """
