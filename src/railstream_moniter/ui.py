@@ -1,7 +1,7 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
 import cv2
-from utils import print_time
+from utils import print_time, BoundingBoxColor
 
 class StreamUI:
     def __init__(self, config):
@@ -16,6 +16,7 @@ class StreamUI:
         self.window_tag = "Video Window"
         self.drawlist_id = "stream_drawlist"
         self.draw_image_id = "stream_draw_image"
+        self.bounding_box_id = "stream_bounding_box"
 
         self._current_frame_dims = (0, 0)
 
@@ -105,6 +106,15 @@ class StreamUI:
                     tag=self.draw_image_id
                 )
 
+                dpg.draw_rectangle(
+                    pmin=(0, 0),
+                    pmax=(0, 0),
+                    color=(0, 255, 0, 255),
+                    thickness=2,
+                    show=False,
+                    tag=self.bounding_box_id
+                )
+
         with dpg.item_handler_registry(tag="window_resize_handler_reg"):
             dpg.add_item_resize_handler(callback=self._on_window_resize)
 
@@ -114,9 +124,12 @@ class StreamUI:
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
-    def update_frame(self, frame):
+    def update_frame(self, frame, detection_result = None):
         
+        # Texture
+
         h, w, _ = frame.shape
+
         if w == 0 or h == 0:
             return
         
@@ -155,6 +168,50 @@ class StreamUI:
             self._current_frame_dims = frame_dims
         else:
             dpg.set_value(self.texture_id, texture_data)
+
+        # Detection Box
+        
+        confidence = detection_result['confidence']
+        box = detection_result['box']
+        color = detection_result['color']
+
+        if detection_result and box and confidence:
+
+            image_config = dpg.get_item_configuration(self.draw_image_id)
+            draw_pmin = image_config['pmin']
+            draw_pmax = image_config['pmax']
+
+            draw_width = draw_pmax[0] - draw_pmin[0]
+            draw_height = draw_pmax[1] - draw_pmin[1]
+
+            if draw_width == 0 or draw_height == 0:
+                return
+
+            w_frame, h_frame = self._current_frame_dims
+
+            cx, cy, box_w_norm, box_h_norm = box
+
+            norm_xmin = cx - box_w_norm / 2.0
+            norm_ymin = cy - box_h_norm / 2.0
+            norm_xmax = cx + box_w_norm / 2.0
+            norm_ymax = cy + box_h_norm / 2.0
+
+            box_xmin = draw_pmin[0] + norm_xmin * draw_width
+            box_ymin = draw_pmin[1] + norm_ymin * draw_height
+            box_xmax = draw_pmin[0] + norm_xmax * draw_width
+            box_ymax = draw_pmin[1] + norm_ymax * draw_height
+
+            dpg.configure_item(
+                self.bounding_box_id,
+                pmin=(box_xmin, box_ymin),
+                pmax=(box_xmax, box_ymax),
+                show=True,
+                color=color.value,
+                thickness=3
+            )
+        else:
+            if dpg.does_item_exist(self.bounding_box_id):
+                dpg.configure_item(self.bounding_box_id, show=False)
 
     def is_running(self):
         return dpg.is_dearpygui_running()

@@ -4,6 +4,7 @@ import numpy as np
 from utils import print_time
 from ultralytics import YOLO
 import torch
+import sys
 
 class YOLOProcessor(threading.Thread):
     def __init__(self, config, shared_data, data_lock):
@@ -14,25 +15,18 @@ class YOLOProcessor(threading.Thread):
         self._stop_event = threading.Event()
 
         self.detection_target = "train"
-
         self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-        print_time(f"YOLO detection running on device: {self.device}")
-
         self.model = YOLO("yolo11n.pt")
 
         self.target_class_id = -1
-        
         for cls_id, name in self.model.names.items():
             if name == self.detection_target:
                 self.target_class_id = cls_id
                 break
         
         if self.target_class_id == -1:
-            print_time(f"Warning: Target '{self.detection_target}' not found in model names. Processor will not detect this target.")
-        else:
-            print_time(f"YOLO Processor configured to detect: '{self.detection_target}' (Class ID: {self.target_class_id})")
-
-        print_time("YOLO Processor initialized (placeholder model loaded).")
+            print_time(f"Warning: Target '{self.detection_target}' not found in model names. Processor will not run detection.")
+            sys.exit()
 
     def run(self):
         TARGET_FPS = 5
@@ -54,7 +48,7 @@ class YOLOProcessor(threading.Thread):
             last_process_time = time.time()
 
             current_frame = None
-
+            
             with self.data_lock:
                 if self.shared_data['latest_frame'] is not None:
                     current_frame = self.shared_data['latest_frame'].copy() 
@@ -63,8 +57,12 @@ class YOLOProcessor(threading.Thread):
 
                 confidence, box = self._run_detection(current_frame)
 
-                if box:
-                    print_time(f"Detected a {self.detection_target} with confidence: {confidence:.2f} at box: {box}")
+                with self.data_lock:
+                    self.shared_data['detection_result'] = {
+                        'confidence': confidence,
+                        'box': box,
+                        'timestamp': last_process_time
+                    }
 
     def _run_detection(self, frame):
 

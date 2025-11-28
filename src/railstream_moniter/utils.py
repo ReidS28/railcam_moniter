@@ -2,6 +2,13 @@ import os
 import json
 from datetime import datetime
 from termcolor import colored
+from enum import Enum
+
+class BoundingBoxColor(Enum):
+    RED = (255, 0, 0, 255)      # (R, G, B, A)
+    BLUE = (0, 0, 255, 255)
+    GREEN = (0, 255, 0, 255)
+    YELLOW = (255, 255, 0, 255)
 
 def print_time(message, color='white', highlight_color=None, attrs=[]):
     """
