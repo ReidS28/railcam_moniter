@@ -2,7 +2,6 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 import cv2
 from utils import print_time
-import time
 
 class StreamUI:
     def __init__(self, config):
