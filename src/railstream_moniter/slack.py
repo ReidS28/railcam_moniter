@@ -21,7 +21,7 @@ class Slack():
         self.CHANNEL_NAME = config.get('slack', 'channel_name')
 
         self.client = WebClient(token=self.SLACK_BOT_TOKEN)
-        self.channel_id = self._get_channel_id_by_name(self.CHANNEL_NAME)
+        self.CHANNEL_ID = self._get_channel_id_by_name(self.CHANNEL_NAME)
 
     def _get_channel_id_by_name(self, channel_name: str) -> Optional[str]:
         clean_name = channel_name.lstrip('#') 
@@ -50,7 +50,7 @@ class Slack():
 
         target_channel = channel
         if target_channel is None:
-            target_channel = self.channel_id
+            target_channel = self.CHANNEL_ID
 
         if not target_channel:
             print_time("Error: Channel ID is not resolved. Cannot send message.", "red")
@@ -67,13 +67,13 @@ class Slack():
             print_time(f"Error sending message to {channel}: {e.response['error']} (HTTP Status: {e.response.status_code})", "red")
             return None
 
-    def upload_file(self, file_path: str, message: str, channel: str = None) -> Optional[Dict[str, Any]]:
+    def upload_file(self, file_path: str, message: str, channel_id: str = None) -> Optional[Dict[str, Any]]:
         
-        target_channel = channel
-        if target_channel is None:
-            target_channel = self.channel_id
+        target_channel_id = channel_id
+        if target_channel_id is None:
+            target_channel_id = self.CHANNEL_ID
 
-        if not target_channel:
+        if not target_channel_id:
             print_time("FATAL: Channel ID is not resolved. Cannot send message.", "red")
             return None
 
@@ -83,10 +83,10 @@ class Slack():
         try:
             response = self.client.files_upload_v2(
                 file=file_path,
-                channel=target_channel, 
+                channel=target_channel_id, 
                 initial_comment=message,
             )
-            print_time(f"File {os.path.basename(file_path)} uploaded successfully to {channel}.", "green")
+            print_time(f"File {os.path.basename(file_path)} uploaded successfully to {self.CHANNEL_NAME}.")
             return response
         except SlackApiError as e:
             print_time(f"Error uploading file: {e.response['error']} (HTTP Status: {e.response.status_code})", "red")
@@ -102,6 +102,6 @@ if __name__ == '__main__':
 
     slack.send_message(message)
 
-    message = "It's a train!!"
-    test_file_path = "detections/train_detection_20250808_153732.mp4" 
+    message = "Image"
+    test_file_path = "image.png" 
     #slack.upload_file(test_file_path, message)

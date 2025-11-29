@@ -68,7 +68,7 @@ def setup():
     ui = StreamUI(config)
     ui.create_ui()
 
-    detection_handler = DecectionHandler()
+    detection_handler = DecectionHandler(config, shared_data, data_lock)
 
     print_time("UI loop starting. Close the window to exit.")
 
@@ -109,7 +109,11 @@ def update_detection():
         if not target_detected:
             target_detected = True
 
-            detection_handler.new_detection(current_frame, detection_result)
+            detection_thread = threading.Thread(
+                target=detection_handler.new_detection, 
+                args=(current_frame, detection_result)
+            )
+            detection_thread.start()
         
         detection_end_countdown = DETECTON_COUNTDOWN_FRAMES
     else:
