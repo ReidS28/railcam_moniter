@@ -13,3 +13,5 @@ detections/
 src/__pycache__/
 
 yolo11n.pt
+
+.env

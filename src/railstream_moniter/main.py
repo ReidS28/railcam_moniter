@@ -24,6 +24,7 @@ detection_end_countdown = 0
 last_render_time = 0.0
 
 last_box = None
+current_frame = None
 detection_result = None
 
 TARGET_FPS = 30
@@ -41,15 +42,11 @@ def main():
     
     cleanup()
 
-def load_config():
-    config = configparser.ConfigParser()
-    config.read('config.ini')
-    return config
-
 def setup():
     global config, data_lock, shared_data, streamer, yolo_processor, ui, detection_handler, target_detected, detection_end_countdown, last_render_time
 
-    config = load_config()
+    config = configparser.ConfigParser()
+    config.read('config.ini')
     
     target_detected = False
     detection_end_countdown = 0
@@ -78,7 +75,7 @@ def setup():
     last_render_time = time.time() 
 
 def main_loop():
-    global last_render_time, target_detected, detection_end_countdown, last_box, detection_result
+    global last_render_time, target_detected, detection_end_countdown, last_box, current_frame, detection_result
     
     current_time = time.time()
 
@@ -102,7 +99,7 @@ def main_loop():
 
 def update_detection():
     #TODO Use confidence to improve results
-    global target_detected, detection_end_countdown, detection_result, last_box, detection_handler, DETECTON_COUNTDOWN_FRAMES
+    global target_detected, detection_end_countdown, current_frame, detection_result, last_box, detection_handler, DETECTON_COUNTDOWN_FRAMES
 
     current_frame_detection = detection_result['box'] != None
 
@@ -112,7 +109,7 @@ def update_detection():
         if not target_detected:
             target_detected = True
 
-            detection_handler.new_detection()
+            detection_handler.new_detection(current_frame, detection_result)
         
         detection_end_countdown = DETECTON_COUNTDOWN_FRAMES
     else:

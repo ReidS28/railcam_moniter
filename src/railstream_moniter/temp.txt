@@ -1,0 +1,2 @@
+SLACK_BOT_TOKEN = "xoxb-8678201375584-10044458989248-KoNTpl0BUWqtewThsEfhAVfI" #TODO Move this somwhere more secure
+DEFAULT_CHANNEL = "#railstream-alerts" # Use Channel ID (e.g., C012345ABC) or Name (e.g., #alerts)
