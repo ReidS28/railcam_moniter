@@ -10,7 +10,7 @@ from utils import print_time
 config = configparser.ConfigParser()
 config.read('config.ini')
 
-class Slack:
+class Slack():
 
     def __init__(self):
         config = configparser.ConfigParser()
@@ -98,9 +98,9 @@ class Slack:
 if __name__ == '__main__':
     slack = Slack()
 
-    message = "Hi Mom"
+    message = "Test Message"
 
-    #slack.send_message(message)
+    slack.send_message(message)
 
     message = "It's a train!!"
     test_file_path = "detections/train_detection_20250808_153732.mp4" 

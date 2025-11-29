@@ -4,11 +4,15 @@ from PIL import Image
 import datetime
 
 from utils import print_time
+from slack import Slack
 
 class DecectionHandler():
 
-    latest_start_frame = None
-    latest_start_frame_detection_result = None
+    #latest_start_frame = None
+    #latest_start_frame_detection_result = None
+
+    def __init__(self):
+        self.slack = Slack()
 
     def new_detection(self, current_frame, detection_result):
         global latest_start_frame, latest_start_detection_result
@@ -18,10 +22,12 @@ class DecectionHandler():
         print_time("-- Detection Started --", 'green')
         print_time("-----------------------", 'green')
 
-        latest_start_frame = current_frame
-        latest_start_detection_result = detection_result
+        #latest_start_frame = current_frame
+        #latest_start_detection_result = detection_result
 
-        self.save_frame(current_frame)
+        file_path = self.save_frame(current_frame)
+        self.slack.upload_file(file_path, "Train Detected")
+
 
     def end_detection(self):
         orange = (255, 192, 128)
@@ -36,10 +42,10 @@ class DecectionHandler():
 
         now = datetime.datetime.now()
 
-        file_path = "detections/"
         file_name = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.png"
+        file_path = f"detections/{file_name}"
 
-        pil_image.save(file_path + file_name)
-        print_time(f"Frame saved as {file_path + file_name}")
+        pil_image.save(file_path)
+        print_time(f"Frame saved as {file_path}")
 
-        return file_name
+        return file_path
