@@ -15,3 +15,5 @@ src/__pycache__/
 yolo11n.pt
 
 .env
+
+yolo11m.pt

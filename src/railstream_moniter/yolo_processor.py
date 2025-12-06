@@ -16,7 +16,7 @@ class YOLOProcessor(threading.Thread):
 
         self.detection_target = "train"
         self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-        self.model = YOLO("yolo11n.pt")
+        self.model = YOLO("yolo11m.pt")
 
         self.target_class_id = -1
         for cls_id, name in self.model.names.items():
