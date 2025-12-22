@@ -11,3 +11,9 @@ detections/train_detection_20250808_153732.mp4
 detections/
 
 src/__pycache__/
+
+yolo11n.pt
+
+.env
+
+yolo11m.pt
