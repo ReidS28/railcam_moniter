@@ -2,6 +2,7 @@ import cv2
 import threading
 import time
 import collections
+from utils import print_time
 
 class StreamHandler(threading.Thread):
 
@@ -22,23 +23,23 @@ class StreamHandler(threading.Thread):
         self.target_fps = self.INIT_TARGET_FPS
         self.last_read_time = time.monotonic()
 
-        print(f"StreamHandler initialized for URL: {self.stream_url}")
+        print_time(f"StreamHandler initialized for URL: {self.stream_url}")
 
     def _attempt_connection(self):
-        print("Connecting to stream...")
+        print_time("Connecting to stream...")
         cap = cv2.VideoCapture(self.stream_url)
         
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 30) 
 
         if not cap.isOpened():
-            print("Error: Could not open stream.")
+            print_time("Error: Could not open stream.")
             return None
         
-        print("Stream opened successfully.")
+        print_time("Stream opened successfully.")
         return cap
 
     def run(self):
-        print("StreamHandler thread started.")
+        print_time("StreamHandler thread started.")
         cap = None
         failure_count = 0
 
@@ -56,10 +57,10 @@ class StreamHandler(threading.Thread):
 
             if not ret:
                 failure_count += 1
-                print(f"Warning: Failed to grab frame. (Failure {failure_count}/{self.MAX_CONSECUTIVE_FAILURES})")
+                print_time(f"Warning: Failed to grab frame. (Failure {failure_count}/{self.MAX_CONSECUTIVE_FAILURES})")
                 
                 if failure_count >= self.MAX_CONSECUTIVE_FAILURES:
-                    print("Critical: Max consecutive failures reached. Releasing and attempting full reconnection...")
+                    print_time("Critical: Max consecutive failures reached. Releasing and attempting full reconnection...")
                     cap.release()
                     cap = None
                     time.sleep(self.RECONNECT_DELAY)
@@ -78,8 +79,8 @@ class StreamHandler(threading.Thread):
 
         if cap:
             cap.release()
-        print("StreamHandler thread stopped.")
+        print_time("StreamHandler thread stopped.")
 
     def stop(self):
-        print("Stopping StreamHandler...")
+        print_time("Stopping StreamHandler...")
         self.running = False
