@@ -26,12 +26,13 @@ class StreamHandler(threading.Thread):
         self.running = True
 
         # PID Controller State
-        self.Kp = 0.1
-        self.Ki = 0
-        self.Kd = 0
-        self.last_pid_time = time.monotonic()
+        self.Kp = 0.02
+        self.Ki = 0.005
+        self.Kd = 0.03
 
-        # The glue between the threads
+        self.queue_error_intigral = 0
+        self.last_pid_error = 0
+
         self.frame_queue = queue.Queue(maxsize=self.QUEUE_SIZE)
 
         print_time(f"StreamHandler: Dynamic Pacing enabled. Target Queue: {self.TARGET_QUEUE_SIZE}")
@@ -97,7 +98,6 @@ class StreamHandler(threading.Thread):
             now = time.monotonic()
 
             if now >= next_update_time:
-                #print_time(now - next_update_time)
                 try:
                     pushed_frame = self.frame_queue.get(timeout=0.1)
 
@@ -117,12 +117,12 @@ class StreamHandler(threading.Thread):
 
                     next_update_time = last_update_time + current_interval
 
-                    # Debug output
                     #current_fps = 1.0 / current_interval
                     #color = "white"
-                    #if adjustment > 0:
+                    #error = self.TARGET_QUEUE_SIZE - self.frame_queue.qsize()
+                    #if error > 0:
                     #    color = "blue"
-                    #elif adjustment < 0:
+                    #elif error < 0:
                     #    color = "red"
                     #print_time(
                     #    f"result: {adjustment:.4f} | "
@@ -149,9 +149,14 @@ class StreamHandler(threading.Thread):
         q_size = self.frame_queue.qsize()
         
         error = (self.TARGET_QUEUE_SIZE - q_size) * self.BASE_INTERVAL
+        self.queue_error_intigral += error
 
         p_out = error * self.Kp
+        i_out = self.queue_error_intigral * self.Ki
+        d_out = (self.last_pid_error - error) * self.Kd
 
-        output = p_out
+        output = p_out + i_out + d_out
+
+        self.last_pid_error = error
 
         return output
