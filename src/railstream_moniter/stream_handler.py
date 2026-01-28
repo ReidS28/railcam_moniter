@@ -17,11 +17,12 @@ class StreamHandler(threading.Thread):
     QUEUE_SIZE = 128
     TARGET_QUEUE_SIZE = 30
 
-    def __init__(self, config, shared_data, data_lock):
+    def __init__(self, config, shared_data, data_lock, new_frame_event):
         super().__init__()
         self.stream_url = config.get("Stream", "url")
         self.shared_data = shared_data
         self.data_lock = data_lock
+        self.new_frame_event = new_frame_event
         self.running = True
 
         # PID Controller State
@@ -51,11 +52,9 @@ class StreamHandler(threading.Thread):
         while self.running:
             # 1. Handle Connection
             if cap is None or not cap.isOpened():
-                print_time("Capture: Attempting connect...", "yellow")
                 cap = self._attempt_connection()
                 
                 if cap is None:
-                    print_time("Capture: Connection failed. Retrying...", "red")
                     time.sleep(self.RECONNECT_DELAY)
                     continue
             
@@ -107,6 +106,7 @@ class StreamHandler(threading.Thread):
                         self.shared_data["frame_id"] = (
                             self.shared_data.get("frame_id", 0) + 1
                         )
+                    self.new_frame_event.set()
                     
                     last_update_time = now
 
@@ -121,16 +121,19 @@ class StreamHandler(threading.Thread):
                     current_fps = 1.0 / current_interval
                     color = "white"
                     if adjustment > 0:
-                        color = "blue"
-                    elif adjustment < 0:
-                        color = "red"
-                    print_time(
-                        f"result: {adjustment:.4f} | "
-                        f"fps: {current_fps:.2f} | "
-                        f"frame time: {current_interval:.4f} | "
-                        f"queue: {self.frame_queue.qsize()}",
-                        color
-                    )
+                    #current_fps = 1.0 / current_interval
+                    #color = "white"
+                    #if adjustment > 0:
+                    #    color = "blue"
+                    #elif adjustment < 0:
+                    #    color = "red"
+                    #print_time(
+                    #    f"result: {adjustment:.4f} | "
+                    #    f"fps: {current_fps:.2f} | "
+                    #    f"frame time: {current_interval:.4f} | "
+                    #    f"queue: {self.frame_queue.qsize()}",
+                    #    color
+                    #)
 
                 except queue.Empty:
                     time.sleep(0.01) 
@@ -138,8 +141,7 @@ class StreamHandler(threading.Thread):
                 sleep_time = (next_update_time - now) * 0.2
                 if sleep_time > 0.001:
                     time.sleep(sleep_time)
-                #print_time("Loop Skipped", "red")
-
+    
     def stop(self):
         print_time("Stopping StreamHandler...")
         self.running = False

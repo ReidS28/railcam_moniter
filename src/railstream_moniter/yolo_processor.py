@@ -8,16 +8,26 @@ import sys
 
 
 class YOLOProcessor(threading.Thread):
-    def __init__(self, config, shared_data, data_lock):
+    def __init__(self, config, shared_data, data_lock, new_frame_event):
         super().__init__()
         self.config = config
         self.shared_data = shared_data
         self.data_lock = data_lock
-        self._stop_event = threading.Event()
+        self.new_frame_event = new_frame_event
+        self.running = True
 
         self.detection_target = "train"
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.model = YOLO("yolo11m.pt")
+
+        self.model.to(self.device)
+
+        print_time("Warming up model...")
+        dummy_input = torch.zeros(1, 3, 640, 640).to(self.device)
+        
+        # Run a silent inference
+        self.model(dummy_input, verbose=False) 
+        print_time("Warmup complete. Model is ready.")
 
         self.target_class_id = -1
         for cls_id, name in self.model.names.items():
@@ -32,40 +42,39 @@ class YOLOProcessor(threading.Thread):
             sys.exit()
 
     def run(self):
-        TARGET_FPS = 5
-        FRAME_DURATION_SEC = 1 / TARGET_FPS
 
-        last_process_time = time.time()
+        frame_count = 0
+        PROCESS_EVERY_N_FRAMES = 1
 
-        print_time("YOLO Processor thread started.")
+        print_time("YOLO Processor thread started")
 
-        while not self._stop_event.is_set():
-            current_time = time.time()
-            time_to_wait = FRAME_DURATION_SEC - (current_time - last_process_time)
+        while self.running:
 
-            if time_to_wait > 0:
-                self._stop_event.wait(time_to_wait)
-                if self._stop_event.is_set():
-                    break
+            frame_ready = self.new_frame_event.is_set()
+            if frame_ready:
+                self.new_frame_event.clear()
 
-            last_process_time = time.time()
 
-            current_frame = None
+                frame_count += 1
+                if frame_count < PROCESS_EVERY_N_FRAMES:
+                    continue
+                else:
+                    frame_count = 0
 
-            with self.data_lock:
-                if self.shared_data["latest_frame"] is not None:
-                    current_frame = self.shared_data["latest_frame"].copy()
-
-            if current_frame is not None:
-
-                confidence, box = self._run_detection(current_frame)
-
+                current_frame = None
                 with self.data_lock:
-                    self.shared_data["detection_result"] = {
-                        "confidence": confidence,
-                        "box": box,
-                        "timestamp": last_process_time,
-                    }
+                    if self.shared_data["latest_frame"] is not None:
+                        current_frame = self.shared_data["latest_frame"].copy()
+
+                if current_frame is not None:
+                    confidence, box = self._run_detection(current_frame)
+
+                    with self.data_lock:
+                        self.shared_data["detection_result"] = {
+                            "confidence": confidence,
+                            "box": box,
+                            "timestamp": time.time(),
+                        }
 
     def _run_detection(self, frame):
 
@@ -93,5 +102,5 @@ class YOLOProcessor(threading.Thread):
         return max_confidence, best_detection_box
 
     def stop(self):
-        self._stop_event.set()
+        self.running = False
         print_time("YOLO Processor stop signal sent.")

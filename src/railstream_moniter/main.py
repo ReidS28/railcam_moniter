@@ -43,9 +43,8 @@ def main():
 
     cleanup()
 
-
 def setup():
-    global config, data_lock, shared_data, streamer, yolo_processor, ui, detection_handler, target_detected, detection_end_countdown, last_render_time
+    global config, data_lock, shared_data, streamer, streamer_new_frame_event, yolo_processor, yolo_processor_new_frame_event, ui, detection_handler, target_detected, detection_end_countdown, last_render_time
 
     config = configparser.ConfigParser()
     config.read("config.ini")
@@ -63,13 +62,16 @@ def setup():
         },
     }
 
-    streamer = StreamHandler(config, shared_data, data_lock)
+    streamer_new_frame_event = threading.Event()
+    yolo_processor_new_frame_event = threading.Event()
+
+    streamer = StreamHandler(config, shared_data, data_lock, streamer_new_frame_event)
     streamer.daemon = True
     streamer.start()
 
-    #yolo_processor = YOLOProcessor(config, shared_data, data_lock)
-    #yolo_processor.daemon = True
-    #yolo_processor.start()
+    yolo_processor = YOLOProcessor(config, shared_data, data_lock, yolo_processor_new_frame_event)
+    yolo_processor.daemon = True
+    yolo_processor.start()
 
     ui = StreamUI(config)
     ui.create_ui()
@@ -80,13 +82,12 @@ def setup():
 
     last_render_time = time.time()
 
-
 def main_loop():
-    global last_render_time, target_detected, detection_end_countdown, last_box, current_frame, detection_result
+    global target_detected, detection_end_countdown, last_box, current_frame, detection_result, streamer_new_frame_event, yolo_processor_new_frame_event
 
-    current_time = time.time()
-
-    if (current_time - last_render_time) >= FRAME_DURATION_SEC:
+    if streamer_new_frame_event.is_set():
+        streamer_new_frame_event.clear()
+        yolo_processor_new_frame_event.set()
 
         current_frame = None
         with data_lock:
@@ -100,10 +101,7 @@ def main_loop():
         if current_frame is not None:
             ui.update_frame(current_frame, detection_result)
 
-        last_render_time = current_time
-
     ui.render()
-
 
 def update_detection():
     # TODO Use confidence to improve results
@@ -143,7 +141,6 @@ def update_detection():
     else:
         detection_result["color"] = None
 
-
 def cleanup():
     # Access global variables (streamer, yolo_processor, ui)
     print_time("Window closed, stopping stream threads...")
@@ -162,7 +159,6 @@ def cleanup():
         ui.cleanup()
 
     print_time("Program exited gracefully.")
-
 
 if __name__ == "__main__":
     main()
