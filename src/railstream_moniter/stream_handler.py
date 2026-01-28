@@ -118,9 +118,6 @@ class StreamHandler(threading.Thread):
                     next_update_time = last_update_time + current_interval
 
                     # Debug output
-                    current_fps = 1.0 / current_interval
-                    color = "white"
-                    if adjustment > 0:
                     #current_fps = 1.0 / current_interval
                     #color = "white"
                     #if adjustment > 0:
