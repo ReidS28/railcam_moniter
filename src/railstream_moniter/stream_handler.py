@@ -9,7 +9,7 @@ class StreamHandler(threading.Thread):
     BASE_FPS = 30.0
     BASE_INTERVAL = 1.0 / BASE_FPS
 
-    MAX_INTERVAL_DEVIATION = BASE_INTERVAL - 1e-6
+    MAX_INTERVAL_DEVIATION = BASE_INTERVAL - 1e-4
     MIN_INTERVAL = BASE_INTERVAL - MAX_INTERVAL_DEVIATION
     MAX_INTERVAL = BASE_INTERVAL + MAX_INTERVAL_DEVIATION
 
@@ -26,9 +26,9 @@ class StreamHandler(threading.Thread):
         self.running = True
 
         # PID Controller State
-        self.Kp = 0.02
-        self.Ki = 0.005
-        self.Kd = 0.03
+        self.Kp =0.04
+        self.Ki = 0.001
+        self.Kd = 0.001
 
         self.queue_error_intigral = 0
         self.last_pid_error = 0
@@ -117,20 +117,23 @@ class StreamHandler(threading.Thread):
 
                     next_update_time = last_update_time + current_interval
 
-                    #current_fps = 1.0 / current_interval
-                    #color = "white"
-                    #error = self.TARGET_QUEUE_SIZE - self.frame_queue.qsize()
-                    #if error > 0:
-                    #    color = "blue"
-                    #elif error < 0:
-                    #    color = "red"
-                    #print_time(
-                    #    f"result: {adjustment:.4f} | "
-                    #    f"fps: {current_fps:.2f} | "
-                    #    f"frame time: {current_interval:.4f} | "
-                    #    f"queue: {self.frame_queue.qsize()}",
-                    #    color
-                    #)
+                    current_fps = 1.0 / current_interval
+                    color_sensitivity = 30
+                    color = (255, 255, 255)
+                    error = self.TARGET_QUEUE_SIZE - self.frame_queue.qsize()
+                    saturation_offset = min(abs(error) * color_sensitivity, 255)
+                    if error > 0:
+                        color = (255 - saturation_offset, 255 - saturation_offset, 255)
+                    elif error < 0:
+                        color = (255, 255 - saturation_offset, 255 - saturation_offset)
+                    print_time(
+                        #f"result: {adjustment:.4f} | "
+                        #f"fps: {current_fps:.2f} | "
+                        #f"frame time: {current_interval:.4f} | "
+                        f"queue: {self.frame_queue.qsize()} | "
+                        f"intigral: {(self.queue_error_intigral / self.BASE_INTERVAL):.0f}",
+                        color
+                    )
 
                 except queue.Empty:
                     time.sleep(0.01) 
