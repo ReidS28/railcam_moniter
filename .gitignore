@@ -17,3 +17,4 @@ yolo11n.pt
 .env
 
 yolo11m.pt
+*.pyc
