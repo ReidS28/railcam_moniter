@@ -1,12 +1,6 @@
-import time
 from pathlib import Path
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
-from utils import print_time
+from playwright.sync_api import sync_playwright
 
 
 class webPlayer:
@@ -15,69 +9,37 @@ class webPlayer:
     ):
         self.url = url
 
-        options = Options()
-
-        project_root = Path(__file__).resolve().parents[1]
+        project_root = Path(__file__).resolve().parents[2]
         extension_path = project_root / "uBOLite"
-        # extension_path = "C:/Users/straw/Desktop/Code/railstream_moniter/uBOLite"4
 
-        options.add_argument(f"--load-extension={extension_path}")
+        self._playwright = sync_playwright().start()
+        context = self._playwright.chromium.launch_persistent_context(
+            user_data_dir="",
+            headless=False,
+            args=[
+                f"--disable-extensions-except={extension_path}",
+                f"--load-extension={extension_path}",
+            ],
+        )
+        self._page = context.new_page()
 
-        self._driver = webdriver.Chrome(options=options)
+        self._page.goto(self.url)
 
-        time.sleep(2)
-
-        self._driver.get(self.url)
-
-        time.sleep(2)
         self.click_play()
-        # time.sleep(2)
-        # self.skip_ad()
+        self.enter_fullscreen()
 
     def click_play(self):
-        try:
-            play_button = WebDriverWait(self._driver, 10).until(
-                EC.presence_of_element_located(
-                    (By.CSS_SELECTOR, ".brid-overlay-play-button.brid-button")
-                )
-            )
 
-            # Center video
-            self._driver.execute_script(
-                "arguments[0].scrollIntoView({block: 'center'});", play_button
-            )
-            time.sleep(0.5)
-            try:
-                play_button.click()
-            except Exception:
-                self._driver.execute_script("arguments[0].click();", play_button)
+        play_button_selector = ".brid-overlay-play-button.brid-button"
 
-        finally:
-            pass
+        # Canter on page
+        locator = self._page.locator(play_button_selector)
+        locator.evaluate("el => el.scrollIntoView({block: 'center', inline: 'center'})")
 
-    def remove_ad_container(self):
-        script = """
-            var adContainer = document.querySelector('.brid-advert-container');
-            if (adContainer) {
-                adContainer.remove();
-            }
-        """
-        self._driver.execute_script(script)
+        self._page.click(play_button_selector)
 
-    def skip_ad(self):
-        script = """
-            var adVideo = document.querySelector('.brid-advert-container video');
-            
-            if (adVideo && !isNaN(adVideo.duration)) {
-                adVideo.currentTime = adVideo.duration; 
-            }
-        """
-        try:
-            self._driver.execute_script(script)
-            print_time("Ad skipped to end", "green")
-        except Exception:
-            print_time("Could not fast-forward ad.", "yellow")
+    def enter_fullscreen(self):
+        self._page.click(".brid-fullscreen-control.brid-control.brid-button")
 
     def end(self):
-        self._driver.close()
-        self._driver.quit()
+        self._page.close()

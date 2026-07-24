@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "pathlib>=1.0.1",
+    "playwright>=1.61.0",
     "pre-commit>=4.6.1",
-    "selenium>=4.46.0",
     "termcolor>=3.3.0",
     "webdriver-manager>=4.1.2",
 ]
