@@ -5,16 +5,5 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "bs4>=0.0.2",
-    "dearpygui>=2.2",
-    "ffmpeg-python>=0.2.0",
-    "opencv-python>=4.13.0.92",
-    "selenium>=4.41.0",
-    "slack-sdk>=3.41.0",
-    "termcolor>=3.3.0",
-    "torch>=2.11.0",
-    "torchaudio>=2.11.0",
-    "torchvision>=0.26.0",
-    "ultralytics>=8.4.33",
-    "webdriver-manager>=4.0.2",
+    "pre-commit>=4.6.1",
 ]
