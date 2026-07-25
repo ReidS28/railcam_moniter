@@ -1,0 +1,1 @@
+To run download the chromium.zip from the latest release of [uBO Lite](https://github.com/uBlockOrigin/uBOL-home) and put it in the project's root folder with the name `uBOLite` so you have `uBOLite/manifest.json`
