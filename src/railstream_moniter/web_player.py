@@ -19,7 +19,7 @@ class webPlayer:
     ):
         self.url = url
         self.frame_callback = frame_callback
-        
+
         self._frame_lock = threading.Lock()
         self._latest_frame = None
         self._loop = asyncio.new_event_loop()
