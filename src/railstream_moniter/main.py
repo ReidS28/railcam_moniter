@@ -6,7 +6,7 @@ from web_player import webPlayer
 
 
 def main():
-    movement_detector = MovementDetection()
+    movement_detector = MovementDetection(run_nth_frame=2)
 
     frame_count = 0
 
@@ -22,6 +22,9 @@ def main():
         "https://railstream.net/live-cameras/item/fostoria-oh-east-guest",
         frame_callback=on_frame,
     )
+    # player = webPlayer(
+    #     frame_callback=on_frame,
+    # )
 
     try:
         while True:
