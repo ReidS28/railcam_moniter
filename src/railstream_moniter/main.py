@@ -8,23 +8,18 @@ from web_player import webPlayer
 def main():
     movement_detector = MovementDetection(run_nth_frame=2)
 
-    frame_count = 0
-
-    def color_to_hex(color) -> str:
-        b, g, r = color
-        return f"{r:02x}{g:02x}{b:02x}"
-
     def on_frame(frame: MatLike):
-        # print_time(f"{frame.mean():.2} : #{color_to_hex(frame[0][0])}")
         movement_detector.add_frame(frame)
 
+    # url = "https://railstream.net/live-cameras/item/cptweed-guest"
+    url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
+    # url = "https://railstream.net/live-cameras/item/fullerton-guest"
+    # url = "https://railstream.net/live-cameras/item/oregon-guest"
+    # url = "https://railstream.net/live-cameras/item/selma-guest"
     player = webPlayer(
-        "https://railstream.net/live-cameras/item/fostoria-oh-east-guest",
+        url,
         frame_callback=on_frame,
     )
-    # player = webPlayer(
-    #     frame_callback=on_frame,
-    # )
 
     try:
         while True:

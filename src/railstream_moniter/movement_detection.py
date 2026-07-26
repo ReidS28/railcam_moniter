@@ -2,25 +2,43 @@ import multiprocessing
 from collections import deque
 
 import cv2
-import numpy as np
 from cv2.typing import MatLike
 from utils import print_time
 
 # Following this guide
 # https://hackmd.io/@lKuOpplzSUWLhLim2Z7ZJw/BkGj66aW3
 
-MIN_CONTOUR_AREA = 500
-PIXEL_DIFF_THRESHOLD = 40
+MOG2_HISTORY = 300
+
+MOG2_VAR_THRESHOLD = 32
+BLUR_KERNEL_SIZE = 5
+MORPH_KERNEL_SIZE = 5
+MIN_CONTOUR_AREA = 250
+MIN_TOTAL_MOVING_AREA = 1500
+
+MOVEMENT_START_FRAMES = 6
+MOVEMENT_END_FRAMES = 20
+MAX_EVENT_SECONDS = 40
+
+PRE_ROLL_FRAMES = 60
 
 
 def _worker(frame_queue: multiprocessing.JoinableQueue[MatLike | None]):
 
-    n = 60
-    rolling_storage: deque[MatLike | None] = deque([None] * n, maxlen=n)
+    rolling_storage: deque[MatLike | None] = deque(
+        [None] * PRE_ROLL_FRAMES, maxlen=PRE_ROLL_FRAMES
+    )
 
     cv2.namedWindow("Movement", cv2.WINDOW_NORMAL)
 
-    fgbg = cv2.createBackgroundSubtractorMOG2()
+    fgbg = cv2.createBackgroundSubtractorMOG2(
+        history=MOG2_HISTORY,
+        varThreshold=MOG2_VAR_THRESHOLD,
+        detectShadows=True,
+    )
+    morph_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (MORPH_KERNEL_SIZE, MORPH_KERNEL_SIZE)
+    )
 
     while True:
         frame = frame_queue.get()
@@ -29,15 +47,22 @@ def _worker(frame_queue: multiprocessing.JoinableQueue[MatLike | None]):
             frame_queue.task_done()
             break
 
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE), 0)
+
+        fgmask = fgbg.apply(gray)
+
         fgmask = fgbg.apply(frame)
-        th = cv2.threshold(fgmask, 200, 255, cv2.THRESH_BINARY)[1]
-        contours, hierarchy = cv2.findContours(
-            th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        _, th = cv2.threshold(fgmask, 200, 255, cv2.THRESH_BINARY)
+
+        th = cv2.morphologyEx(th, cv2.MORPH_OPEN, morph_kernel)
+        th = cv2.morphologyEx(th, cv2.MORPH_CLOSE, morph_kernel)
+
+        contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area > 100:
+            if area > MIN_CONTOUR_AREA:
                 x, y, w, h = cv2.boundingRect(contour)
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
