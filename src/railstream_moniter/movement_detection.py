@@ -1,5 +1,5 @@
 import multiprocessing
-from collections import deque
+import queue
 
 import cv2
 from cv2.typing import MatLike
@@ -10,7 +10,7 @@ from utils import print_time
 
 MOG2_HISTORY = 300
 
-MOG2_VAR_THRESHOLD = 32
+MOG2_VAR_THRESHOLD = 20
 BLUR_KERNEL_SIZE = 5
 MORPH_KERNEL_SIZE = 5
 MIN_CONTOUR_AREA = 250
@@ -23,11 +23,13 @@ MAX_EVENT_SECONDS = 40
 PRE_ROLL_FRAMES = 60
 
 
-def _worker(frame_queue: multiprocessing.JoinableQueue[MatLike | None]):
+def _worker(
+    frame_queue: multiprocessing.JoinableQueue[MatLike | None],
+    event_queue: multiprocessing.Queue,
+    run_nth_frame: int,
+):
 
-    rolling_storage: deque[MatLike | None] = deque(
-        [None] * PRE_ROLL_FRAMES, maxlen=PRE_ROLL_FRAMES
-    )
+    frame_count = -1
 
     cv2.namedWindow("Movement", cv2.WINDOW_NORMAL)
 
@@ -47,12 +49,18 @@ def _worker(frame_queue: multiprocessing.JoinableQueue[MatLike | None]):
             frame_queue.task_done()
             break
 
+        frame_count += 1
+        if frame_count >= run_nth_frame:
+            frame_count = 0
+
+        if frame_count != 0:
+            continue
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE), 0)
 
         fgmask = fgbg.apply(gray)
 
-        fgmask = fgbg.apply(frame)
         _, th = cv2.threshold(fgmask, 200, 255, cv2.THRESH_BINARY)
 
         th = cv2.morphologyEx(th, cv2.MORPH_OPEN, morph_kernel)
@@ -60,11 +68,17 @@ def _worker(frame_queue: multiprocessing.JoinableQueue[MatLike | None]):
 
         contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+        # Boxes
+        movement = False
         for contour in contours:
             area = cv2.contourArea(contour)
             if area > MIN_CONTOUR_AREA:
+                movement = True
                 x, y, w, h = cv2.boundingRect(contour)
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        if movement:
+            event_queue.put({"type": "movement"})
 
         cv2.imshow("Movement", frame)
 
@@ -74,9 +88,8 @@ def _worker(frame_queue: multiprocessing.JoinableQueue[MatLike | None]):
 
 
 class MovementDetection:
-    def __init__(self, run_nth_frame=1) -> None:
+    def __init__(self, event_queue: multiprocessing.Queue, run_nth_frame=1) -> None:
 
-        self.run_nth_frame = run_nth_frame
         self._frame_count = 0
 
         self._background = None
@@ -86,19 +99,18 @@ class MovementDetection:
         )
 
         self.worker = multiprocessing.Process(
-            target=_worker, args=(self._frame_queue,), daemon=True
+            target=_worker,
+            args=(self._frame_queue, event_queue, run_nth_frame),
+            daemon=True,
         )
         self.worker.start()
 
     def add_frame(self, frame: MatLike):
-        if self._frame_count == 0:
-            if self._frame_queue.qsize() > 2:
-                print_time(f"Frame added: {self._frame_queue.qsize()}")
-            self._frame_queue.put(frame)
-
-        self._frame_count += 1
-        if self._frame_count >= self.run_nth_frame:
-            self._frame_count = 0
+        if self._frame_queue.qsize() > 2:
+            print_time(
+                f"Frame added: {self._frame_queue.qsize()}", (255, 128, 0)
+            )  # orange
+        self._frame_queue.put(frame)
 
     def shutdown(self):
         self._frame_queue.join()
