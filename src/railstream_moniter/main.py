@@ -23,10 +23,9 @@ def main():
     def on_frame(frame: MatLike):
         rolling_storage.append(frame)
         movement_detector.add_frame(frame)
-        # yolo_processer.add_frame(frame)
     
     movement_detector = MovementDetection(event_queue, run_nth_frame=2)
-    # yolo_processer = YOLOProcessor()
+    yolo_processer = YOLOProcessor(event_queue, run_nth_frame=2)
 
     # url = "https://railstream.net/live-cameras/item/cptweed-guest"
     url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
@@ -48,16 +47,19 @@ def main():
             case _:
                 print_time(f"Unknown event type: {event_type!r}", 'yellow')
 
+    def drain_event_queue(event_queue: multiprocessing.Queue):
+        while not event_queue.empty():
+            event = event_queue.get()
+            handle_event(event)
+
     try:
         while True:
 
-            while not event_queue.empty():
-                event = event_queue.get()
-                handle_event(event)
+            drain_event_queue(event_queue)
 
             if yolo_active:
                 if rolling_storage:
-                    print_time(str(rolling_storage.pop()[0][0]))
+                    yolo_processer.add_frame(rolling_storage.pop())
                 else:
                     yolo_active = False
 

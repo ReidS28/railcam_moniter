@@ -1,5 +1,4 @@
 import multiprocessing
-import queue
 
 import cv2
 from cv2.typing import MatLike
@@ -10,7 +9,7 @@ from utils import print_time
 
 MOG2_HISTORY = 300
 
-MOG2_VAR_THRESHOLD = 20
+MOG2_VAR_THRESHOLD = 14
 BLUR_KERNEL_SIZE = 5
 MORPH_KERNEL_SIZE = 5
 MIN_CONTOUR_AREA = 250
