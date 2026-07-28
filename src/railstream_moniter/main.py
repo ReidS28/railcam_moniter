@@ -15,7 +15,6 @@ PRE_ROLL_FRAMES = 30
 def main():
 
     event_queue = multiprocessing.Queue(maxsize=10)
-
     rolling_storage: deque[MatLike] = deque(maxlen=PRE_ROLL_FRAMES)
 
     yolo_active = False
@@ -24,8 +23,8 @@ def main():
         rolling_storage.append(frame)
         movement_detector.add_frame(frame)
     
-    movement_detector = MovementDetection(event_queue, run_nth_frame=2)
-    yolo_processer = YOLOProcessor(event_queue, run_nth_frame=2)
+    movement_detector = MovementDetection(event_queue, run_nth_frame=6) # TODO: See if switching yolo yo gpu fixes 2 -> 4
+    yolo_processer = YOLOProcessor(event_queue, run_nth_frame=1)
 
     # url = "https://railstream.net/live-cameras/item/cptweed-guest"
     url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
@@ -44,6 +43,7 @@ def main():
         match event_type:
             case "movement":
                 yolo_active = True
+                pass
             case _:
                 print_time(f"Unknown event type: {event_type!r}", 'yellow')
 
@@ -61,9 +61,10 @@ def main():
                 if rolling_storage:
                     yolo_processer.add_frame(rolling_storage.pop())
                 else:
-                    yolo_active = False
+                    # yolo_active = False
+                    pass
 
-            time.sleep(0.001)
+            time.sleep(0.01)
 
     except KeyboardInterrupt:
         player.end()

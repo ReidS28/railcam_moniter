@@ -10,14 +10,10 @@ from utils import print_time
 MOG2_HISTORY = 300
 
 MOG2_VAR_THRESHOLD = 14
+DOWNSCALE_FACTOR = 0.5
 BLUR_KERNEL_SIZE = 5
 MORPH_KERNEL_SIZE = 5
 MIN_CONTOUR_AREA = 250
-MIN_TOTAL_MOVING_AREA = 1500
-
-MOVEMENT_START_FRAMES = 6
-MOVEMENT_END_FRAMES = 20
-MAX_EVENT_SECONDS = 40
 
 PRE_ROLL_FRAMES = 60
 
@@ -30,7 +26,7 @@ def _worker(
 
     frame_count = -1
 
-    cv2.namedWindow("Movement", cv2.WINDOW_NORMAL)
+    # cv2.namedWindow("Movement", cv2.WINDOW_NORMAL)
 
     fgbg = cv2.createBackgroundSubtractorMOG2(
         history=MOG2_HISTORY,
@@ -55,7 +51,8 @@ def _worker(
         if frame_count != 0:
             continue
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        small = cv2.resize(frame, None, fx=DOWNSCALE_FACTOR, fy=DOWNSCALE_FACTOR, interpolation=cv2.INTER_LINEAR)
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE), 0)
 
         fgmask = fgbg.apply(gray)
@@ -69,19 +66,20 @@ def _worker(
 
         # Boxes
         movement = False
+        scale = 1 / DOWNSCALE_FACTOR
+        scaled_area = MIN_CONTOUR_AREA * (scale ** 2)
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area > MIN_CONTOUR_AREA:
+            if area > scaled_area:
                 movement = True
                 x, y, w, h = cv2.boundingRect(contour)
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.rectangle(frame, (int(x*scale), int(y*scale)), (int((x+w)*scale), int((y+h)*scale)), (0, 255, 0), 2)
 
         if movement:
             event_queue.put({"type": "movement"})
 
-        cv2.imshow("Movement", frame)
-
-        cv2.waitKey(1)
+        # cv2.imshow("Movement", frame)
+        # cv2.waitKey(1)
 
         frame_queue.task_done()
 
