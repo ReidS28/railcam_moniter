@@ -9,11 +9,11 @@ from utils import print_time
 
 MOG2_HISTORY = 300
 
-MOG2_VAR_THRESHOLD = 14
+MOG2_VAR_THRESHOLD = 10
 DOWNSCALE_FACTOR = 0.5
 BLUR_KERNEL_SIZE = 5
 MORPH_KERNEL_SIZE = 5
-MIN_CONTOUR_AREA = 250
+MIN_CONTOUR_AREA = 164
 
 PRE_ROLL_FRAMES = 60
 
@@ -51,7 +51,13 @@ def _worker(
         if frame_count != 0:
             continue
 
-        small = cv2.resize(frame, None, fx=DOWNSCALE_FACTOR, fy=DOWNSCALE_FACTOR, interpolation=cv2.INTER_LINEAR)
+        small = cv2.resize(
+            frame,
+            None,
+            fx=DOWNSCALE_FACTOR,
+            fy=DOWNSCALE_FACTOR,
+            interpolation=cv2.INTER_LINEAR,
+        )
         gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE), 0)
 
@@ -67,13 +73,19 @@ def _worker(
         # Boxes
         movement = False
         scale = 1 / DOWNSCALE_FACTOR
-        scaled_area = MIN_CONTOUR_AREA * (scale ** 2)
+        scaled_area = MIN_CONTOUR_AREA / (scale**2)
         for contour in contours:
             area = cv2.contourArea(contour)
             if area > scaled_area:
                 movement = True
                 x, y, w, h = cv2.boundingRect(contour)
-                cv2.rectangle(frame, (int(x*scale), int(y*scale)), (int((x+w)*scale), int((y+h)*scale)), (0, 255, 0), 2)
+                cv2.rectangle(
+                    frame,
+                    (int(x * scale), int(y * scale)),
+                    (int((x + w) * scale), int((y + h) * scale)),
+                    (0, 255, 0),
+                    2,
+                )
 
         if movement:
             event_queue.put({"type": "movement"})
@@ -103,7 +115,7 @@ class MovementDetection:
         self.worker.start()
 
     def add_frame(self, frame: MatLike):
-        if self._frame_queue.qsize() > 2:
+        if self._frame_queue.full():
             print_time(
                 f"Frame added: {self._frame_queue.qsize()}", (255, 128, 0)
             )  # orange
