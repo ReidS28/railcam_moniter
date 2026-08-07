@@ -3,6 +3,7 @@ import time
 from collections import deque
 
 from cv2.typing import MatLike
+from detection_handler import DetectionHandler
 from movement_detection import MovementDetection
 from slack_bot import SlackBot
 from utils import print_time
@@ -14,10 +15,12 @@ PRE_ROLL_FRAMES = 30
 
 def main():
 
-    slack = SlackBot("C0A0BFE51C3")
-    slack.send_message(
-        message="Screen Recording", file_path="test_files/2026-08-06 11-49-01.mkv"
-    )
+    slack_bot = SlackBot("#railstream-alerts")
+    # slack.send_message(
+    #     message="Screen Recording", file_path="test_files/2026-08-06 11-49-01.mkv"
+    # )
+
+    detection_handler = DetectionHandler(slack_bot)
 
     event_queue = multiprocessing.Queue(maxsize=10)
     rolling_storage: deque[MatLike] = deque(maxlen=PRE_ROLL_FRAMES)
@@ -27,6 +30,7 @@ def main():
     def on_frame(frame: MatLike):
         rolling_storage.append(frame)
         movement_detector.add_frame(frame)
+        detection_handler.add_frame(frame)
 
     movement_detector = MovementDetection(
         event_queue, run_nth_frame=2
@@ -51,7 +55,7 @@ def main():
             case "movement":
                 yolo_active = True
             case "target_detected_started":
-                pass
+                detection_handler.new_detection()
             case "target_detected_ended":
                 pass
             case "done_detecting_queue":
