@@ -1,3 +1,4 @@
+import datetime
 import os
 import subprocess
 import tempfile
@@ -11,8 +12,9 @@ from slack_bot import SlackBot
 from utils import print_time
 
 DEFAULT_PRE_ROLL_FRAMES = 30
-DEFAULT_VIDEO_FRAMES = 90
+DEFAULT_VIDEO_SECONDS = 10
 DEFAULT_FPS = 30
+DEFAULT_VIDEO_FRAMES = DEFAULT_VIDEO_SECONDS * DEFAULT_FPS + 1
 
 
 class DetectionHandler:
@@ -43,18 +45,14 @@ class DetectionHandler:
             self._frames_remaining -= 1
 
             if self._frames_remaining <= 0:
-                saved_path = self._finish_recording()
-
-                if saved_path is not None:
-                    self.slack_bot.send_message(
-                        message=self._current_message,
-                        file_path=saved_path,
-                    )
+                self._finish_recording()
 
     def new_detection(self):
-        file_path = "detections/detection.mp4"
+        now = datetime.datetime.now().astimezone()
+        file_name = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"
+        file_path = f"detections/{file_name}"
 
-        self._current_message = "Train Detected"
+        self._current_message = f"Train Detected @ {now.strftime('%Y/%m/%d %H:%M:%S')}"
 
         self._start_recording(file_path)
 
@@ -71,14 +69,15 @@ class DetectionHandler:
         self._fps = fps
         self._current_file_path = file_path
 
-        # Seed the clip with everything already in the pre-roll buffer.
         self._clip_frames = list(self._rolling_storage)
         self._frames_remaining = video_frames - len(self._clip_frames)
+
+        # print_time(f"Starting recording: '{self._current_file_path}'")
 
         if self._frames_remaining <= 0:
             self._finish_recording()
 
-    def _finish_recording(self) -> str | None:
+    def _finish_recording(self) -> None:
         file_path = self._current_file_path
         frames = self._clip_frames
 
@@ -89,15 +88,16 @@ class DetectionHandler:
         if file_path and frames:
             self._save_clip(file_path, frames)
 
-        saved_path = self._current_file_path
+        if self._current_file_path is not None:
+            self.slack_bot.send_message(
+                message=self._current_message,
+                file_path=self._current_file_path,
+            )
 
         self._current_file_path = None
         self._current_message = None
 
-        return saved_path
-
     def _save_clip(self, file_path: str, frames: list[MatLike]) -> None:
-        """Writes a full, already-buffered clip to disk in one pass."""
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
 
         sample_frame = frames[0]
@@ -109,10 +109,6 @@ class DetectionHandler:
         else:
             fourcc = cv2.VideoWriter.fourcc(*"XVID")
 
-        # OpenCV's own writer is used as an intermediate step: its mp4v
-        # output/moov placement isn't reliably playable outside VLC-like
-        # players. Write to a temp file first, then re-encode to a proper
-        # H.264 + faststart MP4 that browsers/Slack/VS Code can preview.
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = os.path.join(tmp_dir, f"raw{ext or '.mp4'}")
 
@@ -128,12 +124,10 @@ class DetectionHandler:
             else:
                 os.replace(tmp_path, file_path)
 
-        print_time(f"Video saved successfully to '{file_path}'")
+        print_time(f"Video saved successfully to '{file_path}'", "green")
 
     @staticmethod
     def _transcode_for_compatibility(src_path: str, dest_path: str) -> None:
-        """Re-encodes to H.264 (yuv420p) with faststart so the file plays in
-        browsers, Slack previews, and VS Code, not just VLC."""
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
         cmd = [
@@ -151,16 +145,10 @@ class DetectionHandler:
         ]
 
         try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True
-            )
+            subprocess.run(cmd, check=True, capture_output=True)
         except FileNotFoundError:
             print_time(
-                "Bundled ffmpeg binary not found; falling back to raw OpenCV "
-                "output. Try reinstalling the imageio-ffmpeg package "
-                "(`uv sync`).",
+                "Bundled ffmpeg binary not found; falling back to raw OpenCV output."
                 "yellow",
             )
             os.replace(src_path, dest_path)
@@ -173,7 +161,6 @@ class DetectionHandler:
     def _write_frame_safely(
         writer: cv2.VideoWriter, frame: np.ndarray, width: int, height: int
     ) -> None:
-        """Safely resizes and writes a frame to VideoWriter, catching OpenCV errors."""
         try:
             h, w = frame.shape[:2]
             if (w, h) != (width, height):
