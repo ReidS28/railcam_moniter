@@ -37,8 +37,8 @@ def main():
     )  # TODO: See if switching yolo yo gpu fixes 2 -> 4
     yolo_processer = YOLOProcessor(event_queue, run_nth_frame=4)
 
-    # url = "https://railstream.net/live-cameras/item/cptweed-guest"
-    url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
+    url = "https://railstream.net/live-cameras/item/cptweed-guest"
+    # url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
     # url = "https://railstream.net/live-cameras/item/fullerton-guest"
     # url = "https://railstream.net/live-cameras/item/oregon-guest"
     # url = "https://railstream.net/live-cameras/item/selma-guest"

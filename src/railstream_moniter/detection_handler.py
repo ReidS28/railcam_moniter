@@ -49,7 +49,8 @@ class DetectionHandler:
 
     def new_detection(self):
         now = datetime.datetime.now().astimezone()
-        file_name = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"
+        # file_name = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"
+        file_name = "detection.mp4"
         file_path = f"detections/{file_name}"
 
         self._current_message = f"Train Detected @ {now.strftime('%Y/%m/%d %H:%M:%S')}"
