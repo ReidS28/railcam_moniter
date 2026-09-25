@@ -13,7 +13,7 @@ from utils import print_time
 MAX_QUEUE_SIZE = 40
 
 DETECTION_TARGET = "TRAIN"
-START_DETECTION_CONFIDENCE_THRESHOLD = 0.1
+START_DETECTION_CONFIDENCE_THRESHOLD = 0.2
 
 START_DETECTION_FRAMES = 2
 END_DETECTION_FRAMES = 10
@@ -41,6 +41,7 @@ def _worker(
             frame_queue.task_done()
             break
 
+        # TODO: see why detection box stops at half of screen
         results = cast(
             Iterator[Results],
             model.predict(

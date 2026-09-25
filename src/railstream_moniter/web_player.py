@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,6 +18,7 @@ class webPlayer:
         url: str = "https://railstream.net/live-cameras/item/cptweed-guest",
         frame_callback: Callable[[MatLike]] = (lambda _: None),
     ):
+        url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
         self.url = url
         self.frame_callback = frame_callback
 
@@ -45,13 +47,47 @@ class webPlayer:
             args=[
                 f"--disable-extensions-except={extension_path}",
                 f"--load-extension={extension_path}",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-features=CalculateNativeWinOcclusion,IntersectionObserverV2",
+                "--window-position=0,0",
+                "--window-size=1280,800",
+                "--disable-ipv6",
+                "--disable-blink-features=AutomationControlled",
             ],
         )
         self._page = await self._context.new_page()
         await self._page.goto(self.url)
+        # await self._page.bring_to_front()
 
-        await self.click_play()
-        await self.enter_fullscreen()
+        await self._context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+
+        # self._page.on(
+        #     "console",
+        #     lambda msg: print_time(f"[console] {msg.type}: {msg.text}", "cyan"),
+        # )
+        # self._page.on("pageerror", lambda exc: print_time(f"[pageerror] {exc}", "red"))
+        # self._page.on(
+        #     "requestfailed",
+        #     lambda req: print_time(
+        #         f"[requestfailed] {req.method} {req.url} — {req.failure}", "red"
+        #     ),
+        # )
+        # self._page.on(
+        #     "response",
+        #     lambda res: (
+        #         print_time(f"[response] {res.status} {res.url}", "yellow")
+        #         if res.status >= 400
+        #         else None
+        #     ),
+        # )
+
+        # await self.click_play()
+        # await self.enter_fullscreen()
+        time.sleep(2)
         await self.start_screencast()
 
     async def click_play(self):
