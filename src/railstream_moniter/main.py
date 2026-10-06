@@ -80,7 +80,7 @@ def main():
                         random.randint(0, 100),
                         random.randint(0, 100),
                         random.randint(0, 100),
-                        f"$DATA: {random.randbytes(6).hex()}"
+                        f"DATA: {random.randbytes(6).hex()}"
                     )
                 t += 1
                 t %= 100

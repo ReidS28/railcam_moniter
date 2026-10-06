@@ -8,7 +8,6 @@ window.createBoundingBoxContiner = function () {
 		div.style.left = "0";
 		div.style.width = "100vw";
 		div.style.height = "100vh";
-		div.style.backgroundColor = "rgba(8, 15, 140, 0.1)";
 		div.style.zIndex = "2147483646"; // Max z-index - 1
 		div.style.pointerEvents = "none";
 	}
@@ -40,13 +39,17 @@ window.setUpBoundingBoxes = function () {
 };
 
 window.newBoundingBox = function () {
+	const textSize = 18
+	const textPaddingY = 4
+	const color = "#00ff00"
+
 	container = document.getElementById("my-full-page-div");
 	div = document.createElement("div");
 	container.appendChild(div);
 
 	div.className = "bounding-box";
 	div.style.position = "fixed";
-	div.style.border = "4px solid #00ff00";
+	div.style.border = `3px solid ${color}`;
 	div.style.zIndex = "2147483647"; // Max z-index
 	div.style.pointerEvents = "none";
 
@@ -55,12 +58,15 @@ window.newBoundingBox = function () {
 	div.insertAdjacentElement("afterbegin", text);
 
 	text.style.position = "absolute";
-	text.style.top = "-18px";
+	text.style.top = `-${textSize + (2 * textPaddingY)}px`;
 	text.style.left = "0px";
-	text.style.color = "#00ff00";
-	text.style.fontSize = "18px";
+	text.style.color = color;
+	text.style.padding = `${textPaddingY}px 0px`;
+	text.style.backgroundColor = "rgba(0, 0, 0, 0.2)"
+	text.style.fontSize = `${textSize}px`;
 	text.style.fontWeight = "bold";
 	text.style.fontFamily = "Courier New, monospace";
+	text.style.whiteSpace = "nowrap";
 
 	div.style.visibility = "hidden";
 	div.style.top = "0vh";
