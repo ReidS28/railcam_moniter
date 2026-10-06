@@ -1,12 +1,16 @@
 import asyncio
 import base64
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
 import cv2
 import numpy as np
 from cv2.typing import MatLike
+from page_loaders.page_loader import PageLoader
+from page_loaders.railstream_page_loader import RailstreamPageLoader
+from page_loaders.youtube_page_loader import YoutubePageLoader
 from playwright.async_api import async_playwright
 from utils import print_time
 
@@ -17,6 +21,7 @@ class webPlayer:
         url: str = "https://railstream.net/live-cameras/item/cptweed-guest",
         frame_callback: Callable[[MatLike]] = (lambda _: None),
     ):
+        url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
         self.url = url
         self.frame_callback = frame_callback
 
@@ -26,15 +31,24 @@ class webPlayer:
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
+        self._page_loader: PageLoader | None = None
+
         # Block until browser is up and screencast is running
         fut = asyncio.run_coroutine_threadsafe(self._setup(), self._loop)
         fut.result()
 
-    def _run_loop(self):
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_forever()
-
     async def _setup(self):
+        await self._launch_browser()
+
+        # self._page_loader = RailstreamPageLoader(self._context, self.url, True)
+        self._page_loader = YoutubePageLoader(self._context, self.url, True)
+        await self._page_loader.create()
+
+        time.sleep(2)  # noqa ASYNC251
+
+        await self.start_screencast()
+
+    async def _launch_browser(self):
         project_root = Path(__file__).resolve().parents[2]
         extension_path = project_root / "uBOLite"
 
@@ -45,28 +59,30 @@ class webPlayer:
             args=[
                 f"--disable-extensions-except={extension_path}",
                 f"--load-extension={extension_path}",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+                "--disable-features=CalculateNativeWinOcclusion,IntersectionObserverV2",
+                "--window-position=0,0",
+                "--window-size=1280,800",
+                "--disable-ipv6",
+                "--disable-blink-features=AutomationControlled",
             ],
         )
-        self._page = await self._context.new_page()
-        await self._page.goto(self.url)
 
-        await self.click_play()
-        await self.enter_fullscreen()
-        await self.start_screencast()
-
-    async def click_play(self):
-        play_button_selector = ".brid-overlay-play-button.brid-button"
-        locator = self._page.locator(play_button_selector)
-        await locator.evaluate(
-            "el => el.scrollIntoView({block: 'center', inline: 'center'})"
+        await self._context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
-        await self._page.click(play_button_selector)
 
-    async def enter_fullscreen(self):
-        await self._page.click(".brid-fullscreen-control.brid-control.brid-button")
+    def _run_loop(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
 
     async def start_screencast(self, quality: int = 80, every_nth_frame: int = 1):
-        self._cdp = await self._context.new_cdp_session(self._page)
+        if self._page_loader is None or self._page_loader.page is None:
+            return
+
+        self._cdp = await self._context.new_cdp_session(self._page_loader.page)
         self._cdp.on("Page.screencastFrame", self._on_screencast_frame)
 
         await self._cdp.send(
@@ -86,7 +102,7 @@ class webPlayer:
                 with self._frame_lock:
                     self._latest_frame = frame
 
-        except Exception as e:
+        except Exception as e:  # noqa BLE001
             print_time(f"failed to decode screencast frame: {e}", "red")
 
         finally:
@@ -97,7 +113,7 @@ class webPlayer:
     async def _ack_frame(self, session_id):
         try:
             await self._cdp.send("Page.screencastFrameAck", {"sessionId": session_id})
-        except Exception as e:
+        except Exception as e:  # noqa BLE001
             print_time(f"failed to ack screencast frame: {e}", "yellow")
 
     def get_frame(self):
@@ -106,13 +122,28 @@ class webPlayer:
                 return None
             return self._latest_frame.copy()
 
+    def edit_bounding_box(self, *args):
+        if self._page_loader is None:
+            return
+
+        fut = asyncio.run_coroutine_threadsafe(
+            self._page_loader.edit_bounding_box_async(*args), self._loop
+        )
+        fut.add_done_callback(
+            lambda f: (
+                f.exception()
+                and print_time(f"bounding box edit failed: {f.exception()}", "red")
+            )
+        )
+
     def end(self):
         async def _shutdown():
             try:
                 await self._cdp.send("Page.stopScreencast")
-            except Exception:
+            except Exception:  # noqa
                 pass
-            await self._page.close()
+            if self._page_loader is not None and self._page_loader.page is not None:
+                await self._page_loader.page.close()
             await self._context.close()
             await self._playwright.stop()
 
