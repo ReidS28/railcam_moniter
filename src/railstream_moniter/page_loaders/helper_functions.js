@@ -44,17 +44,30 @@ window.newBoundingBox = function () {
 	div = document.createElement("div");
 	container.appendChild(div);
 
-	div.classList.add("bounding-box");
+	div.className = "bounding-box";
 	div.style.position = "fixed";
-	div.style.border = "2px solid #00ff00";
+	div.style.border = "4px solid #00ff00";
 	div.style.zIndex = "2147483647"; // Max z-index
 	div.style.pointerEvents = "none";
+
+	text = document.createElement("span");
+	text.className = "bounding-box-text";
+	div.insertAdjacentElement("afterbegin", text);
+
+	text.style.position = "absolute";
+	text.style.top = "-18px";
+	text.style.left = "0px";
+	text.style.color = "#00ff00";
+	text.style.fontSize = "18px";
+	text.style.fontWeight = "bold";
+	text.style.fontFamily = "Courier New, monospace";
 
 	div.style.visibility = "hidden";
 	div.style.top = "0vh";
 	div.style.left = "0vh";
 	div.style.width = "0vw";
 	div.style.height = "0vh";
+	text.innerText = "HELLO BOX";
 
 	return div;
 };
@@ -66,6 +79,7 @@ window.editBoundingBox = function (
 	y = 0,
 	w = 0,
 	h = 0,
+	text = "",
 ) {
 	if (show) {
 		div.style.visibility = "visible";
@@ -76,4 +90,5 @@ window.editBoundingBox = function (
 	div.style.left = `${x}vw`;
 	div.style.width = `${w}vw`;
 	div.style.height = `${h}vh`;
+	div.firstElementChild.innerText = text
 };

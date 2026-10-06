@@ -63,10 +63,10 @@ class PageLoader:
 
         await self.page.evaluate("window.setUpBoundingBoxes()")
 
-    async def edit_bounding_box_async(self, show=False, x=0, y=0, w=0, h=0):
+    async def edit_bounding_box_async(self, show=False, x=0, y=0, w=0, h=0, text=""):
         if self.page is None:
             return
 
         await self.page.evaluate(
-            f"window.editBoundingBox(window.boundingBoxes[0], {str(show).lower()}, {x}, {y}, {w}, {h});"
+            f"window.editBoundingBox(window.boundingBoxes[0], {str(show).lower()}, {x}, {y}, {w}, {h}, '{text}');"
         )

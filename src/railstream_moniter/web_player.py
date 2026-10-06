@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import random
 import threading
 import time
 from collections.abc import Callable
@@ -125,12 +124,15 @@ class webPlayer:
     def edit_bounding_box(self, *args):
         if self._page_loader is None:
             return
-        
+
         fut = asyncio.run_coroutine_threadsafe(
             self._page_loader.edit_bounding_box_async(*args), self._loop
         )
         fut.add_done_callback(
-            lambda f: f.exception() and print_time(f"bounding box edit failed: {f.exception()}", "red")
+            lambda f: (
+                f.exception()
+                and print_time(f"bounding box edit failed: {f.exception()}", "red")
+            )
         )
 
     def end(self):
