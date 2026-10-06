@@ -48,7 +48,6 @@ class SlackBot:
         return clean_channel
 
     def send_message(self, message: str | None = None, file_path: str | None = None):
-        return
         if not message and not file_path:
             print_time(
                 "Neither message nor file_path was provided. Nothing to send.", "yellow"

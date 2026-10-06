@@ -98,8 +98,6 @@ class PageLoader:
             print_time("None")
             return
 
-        print_time(f"show: {show}, x:{x}, y:{y}, w:{w}, h:{h}, text:{text}")
-
         await self.page.evaluate(
             f"window.editBoundingBox(window.boundingBoxes[0], {str(show).lower()}, {x}, {y}, {w}, {h}, '{text}');"
         )

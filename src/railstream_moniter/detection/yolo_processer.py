@@ -93,17 +93,6 @@ def _worker(
                         label,
                     )
 
-                    # cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    # cv2.putText(
-                    #     frame,
-                    #     label,
-                    #     (x1, max(y1 - 10, 0)),
-                    #     cv2.FONT_HERSHEY_SIMPLEX,
-                    #     1,
-                    #     (0, 255, 0),
-                    #     2,
-                    # )
-
             if currently_detected:
                 detection_frames += 1
             elif target_detected:
@@ -128,9 +117,6 @@ def _worker(
                     bounding_box_callback(False, 0, 0, 0, 0, "")
             elif frame_queue.empty() and not target_detected and not currently_detected:
                 event_queue.put({"type": "done_detecting_queue"})
-
-        # cv2.imshow("Detection", frame)
-        # cv2.waitKey(1)
 
         frame_queue.task_done()
 

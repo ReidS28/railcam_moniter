@@ -48,7 +48,6 @@ class DetectionHandler:
                 self._finish_recording()
 
     def new_detection(self):
-        return
         now = datetime.datetime.now().astimezone()
         # file_name = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"
         file_name = "detection.mp4"
