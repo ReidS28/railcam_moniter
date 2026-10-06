@@ -25,8 +25,6 @@ def _worker(
     event_queue: multiprocessing.Queue,
 ):
 
-    cv2.namedWindow("Detection", cv2.WINDOW_NORMAL)
-
     target_detected = False
     detection_frames = 0
 
@@ -76,19 +74,19 @@ def _worker(
                     currently_detected = True
 
                     # Draw Box
-                    x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+                    # x1, y1, x2, y2 = map(int, best_box.xyxy[0])
 
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    label = f"{DETECTION_TARGET} {conf:.2f}"
-                    cv2.putText(
-                        frame,
-                        label,
-                        (x1, max(y1 - 10, 0)),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1,
-                        (0, 255, 0),
-                        2,
-                    )
+                    # cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    # label = f"{DETECTION_TARGET} {conf:.2f}"
+                    # cv2.putText(
+                    #     frame,
+                    #     label,
+                    #     (x1, max(y1 - 10, 0)),
+                    #     cv2.FONT_HERSHEY_SIMPLEX,
+                    #     1,
+                    #     (0, 255, 0),
+                    #     2,
+                    # )
 
             if currently_detected:
                 detection_frames += 1
@@ -114,8 +112,8 @@ def _worker(
             elif frame_queue.empty() and not target_detected and not currently_detected:
                 event_queue.put({"type": "done_detecting_queue"})
 
-        cv2.imshow("Detection", frame)
-        cv2.waitKey(1)
+        # cv2.imshow("Detection", frame)
+        # cv2.waitKey(1)
 
         frame_queue.task_done()
 

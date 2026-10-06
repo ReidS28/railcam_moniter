@@ -3,7 +3,9 @@ from playwright.async_api import BrowserContext
 
 
 class RailstreamPageLoader(PageLoader):
-    def __init__(self, context: BrowserContext, url, print_console_log: bool = False) -> None:
+    def __init__(
+        self, context: BrowserContext, url, print_console_log: bool = False
+    ) -> None:
         super().__init__(context, url, print_console_log)
 
     async def _navigate_page(self) -> None:
