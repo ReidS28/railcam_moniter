@@ -4,10 +4,10 @@ import time
 from collections import deque
 
 from cv2.typing import MatLike
-from movement_detection import MovementDetection
+from detection.movement_detection import MovementDetection
+from detection.yolo_processer import YOLOProcessor
 from utils import print_time
 from web_player import webPlayer
-from yolo_processer import YOLOProcessor
 
 PRE_ROLL_FRAMES = 30
 
@@ -31,9 +31,7 @@ def main():
         movement_detector.add_frame(frame)
         # detection_handler.add_frame(frame)
 
-    movement_detector = MovementDetection(
-        event_queue, run_nth_frame=2
-    )
+    movement_detector = MovementDetection(event_queue, run_nth_frame=2)
     yolo_processer = YOLOProcessor(event_queue, run_nth_frame=4)
 
     url = "https://railstream.net/live-cameras/item/cptweed-guest"
@@ -80,7 +78,7 @@ def main():
                         random.randint(0, 100),
                         random.randint(0, 100),
                         random.randint(0, 100),
-                        f"DATA: {random.randbytes(6).hex()}"
+                        f"DATA: {random.randbytes(6).hex()}",
                     )
                 t += 1
                 t %= 100
