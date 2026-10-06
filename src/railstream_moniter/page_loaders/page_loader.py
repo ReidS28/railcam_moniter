@@ -1,12 +1,34 @@
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.async_api import BrowserContext, Page
 from utils import print_time
 
 
 class PageLoader:
+    @classmethod
+    def auto_select_loader(
+        cls, context: BrowserContext, url: str, print_console_log: bool = False
+    ) -> PageLoader:
+        # Import page loaders here
+        from page_loaders.railstream_page_loader import RailstreamPageLoader
+        from page_loaders.youtube_page_loader import YoutubePageLoader
+
+        host = (urlparse(url).hostname or "").removeprefix("www.")
+
+        loaders = {
+            "youtube.com": YoutubePageLoader,
+            "youtu.be": YoutubePageLoader,
+            "railstream.net": RailstreamPageLoader,
+        }
+        loader_cls = loaders.get(host, cls)
+        return loader_cls(context, url, print_console_log)
+
     def __init__(
-        self, context: BrowserContext, url, print_console_log: bool = False
+        self,
+        context: BrowserContext,
+        url,
+        print_console_log: bool = False,
     ) -> None:
         self._context: BrowserContext = context
         self.url: str = url

@@ -39,9 +39,9 @@ window.setUpBoundingBoxes = function () {
 };
 
 window.newBoundingBox = function () {
-	const textSize = 18
-	const textPaddingY = 4
-	const color = "#00ff00"
+	const textSize = 18;
+	const textPaddingY = 4;
+	const color = "#00ff00";
 
 	container = document.getElementById("my-full-page-div");
 	div = document.createElement("div");
@@ -58,11 +58,11 @@ window.newBoundingBox = function () {
 	div.insertAdjacentElement("afterbegin", text);
 
 	text.style.position = "absolute";
-	text.style.top = `-${textSize + (2 * textPaddingY)}px`;
+	text.style.top = `-${textSize + 2 * textPaddingY}px`;
 	text.style.left = "0px";
 	text.style.color = color;
 	text.style.padding = `${textPaddingY}px 0px`;
-	text.style.backgroundColor = "rgba(0, 0, 0, 0.2)"
+	text.style.backgroundColor = "rgba(0, 0, 0, 0.2)";
 	text.style.fontSize = `${textSize}px`;
 	text.style.fontWeight = "bold";
 	text.style.fontFamily = "Courier New, monospace";
@@ -96,5 +96,5 @@ window.editBoundingBox = function (
 	div.style.left = `${x}vw`;
 	div.style.width = `${w}vw`;
 	div.style.height = `${h}vh`;
-	div.firstElementChild.innerText = text
+	div.firstElementChild.innerText = text;
 };

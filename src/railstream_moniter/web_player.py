@@ -9,8 +9,6 @@ import cv2
 import numpy as np
 from cv2.typing import MatLike
 from page_loaders.page_loader import PageLoader
-from page_loaders.railstream_page_loader import RailstreamPageLoader
-from page_loaders.youtube_page_loader import YoutubePageLoader
 from playwright.async_api import async_playwright
 from utils import print_time
 
@@ -21,7 +19,7 @@ class webPlayer:
         url: str = "https://railstream.net/live-cameras/item/cptweed-guest",
         frame_callback: Callable[[MatLike]] = (lambda _: None),
     ):
-        url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
+        # url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
         self.url = url
         self.frame_callback = frame_callback
 
@@ -40,8 +38,7 @@ class webPlayer:
     async def _setup(self):
         await self._launch_browser()
 
-        # self._page_loader = RailstreamPageLoader(self._context, self.url, True)
-        self._page_loader = YoutubePageLoader(self._context, self.url, True)
+        self._page_loader = PageLoader.auto_select_loader(self._context, self.url, True)
         await self._page_loader.create()
 
         time.sleep(2)  # noqa ASYNC251

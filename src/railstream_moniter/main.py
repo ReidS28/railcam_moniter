@@ -33,7 +33,7 @@ def main():
 
     movement_detector = MovementDetection(
         event_queue, run_nth_frame=2
-    )  # TODO: See if switching yolo yo gpu fixes 2 -> 4
+    )
     yolo_processer = YOLOProcessor(event_queue, run_nth_frame=4)
 
     url = "https://railstream.net/live-cameras/item/cptweed-guest"
@@ -72,7 +72,7 @@ def main():
     try:
         t = 0
         while True:
-            if player._page_loader:  # TODO: Remove later
+            if player._page_loader:  # TODO: Remove after testing
                 if t == 0:
                     player.edit_bounding_box(
                         True,
