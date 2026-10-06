@@ -1,4 +1,5 @@
 import multiprocessing
+import random
 import time
 from collections import deque
 
@@ -71,12 +72,20 @@ def main():
 
     try:
         while True:
+            if player._page_loader:  # TODO: Remove later
+                player.edit_bounding_box(
+                    True,
+                    random.randint(0, 100),
+                    random.randint(0, 100),
+                    random.randint(0, 100),
+                    random.randint(0, 100),
+                )
+
             drain_event_queue(event_queue)
 
             if yolo_active:
                 if rolling_storage:
                     yolo_processer.add_frame(rolling_storage.pop())
-                    # pass
                 else:
                     pass
 

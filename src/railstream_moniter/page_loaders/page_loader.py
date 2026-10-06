@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from playwright.async_api import BrowserContext, Page
 from utils import print_time
 
@@ -12,11 +14,10 @@ class PageLoader:
         self.page: Page | None = None
 
     async def create(self):
-
         await self._load_page()
+        await self.inject_helper_script()
         if self.print_console_log:
             await self._add_console_logging()
-
         await self._navigate_page()
 
     async def _load_page(self):
@@ -51,20 +52,21 @@ class PageLoader:
             ),
         )
 
-    # async def add_bounding_helper_functions(self):
-    #     bypass_trusted_types = """
-    #     if (window.trustedTypes && !window.trustedTypes.defaultPolicy) {
-    #         window.trustedTypes.createPolicy('default', {
-    #             createHTML: (string) => string,
-    #             createScriptURL: (string) => string,
-    #             createScript: (string) => string
-    #         });
-    #     }
-    #     """
-    #     await self._context.evaluate(bypass_trusted_types)
+    async def inject_helper_script(self):
+        if self.page is None:
+            return
 
-    #     current_dir = Path(__file__).parent
-    #     js_path = current_dir / "helper_functions.js"
-    #     await self._context.add_script_tag(path=js_path)
+        current_dir = Path(__file__).parent
+        js_path = current_dir / "helper_functions.js"
+        await self.page.add_init_script(path=js_path)
+        await self.page.reload()
 
-    #     await self._context.evaluate("window.createBoundingBoxContiner()")
+        await self.page.evaluate("window.setUpBoundingBoxes()")
+
+    async def edit_bounding_box_async(self, show=False, x=0, y=0, w=0, h=0):
+        if self.page is None:
+            return
+
+        await self.page.evaluate(
+            f"window.editBoundingBox(window.boundingBoxes[0], {str(show).lower()}, {x}, {y}, {w}, {h});"
+        )
