@@ -1,7 +1,7 @@
 import multiprocessing
 import queue
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import cast
 
 import cv2
@@ -18,11 +18,17 @@ START_DETECTION_CONFIDENCE_THRESHOLD = 0.2
 START_DETECTION_FRAMES = 2
 END_DETECTION_FRAMES = 10
 
+BoundingBoxCallback = Callable[
+    [bool, float, float, float, float, str],
+    None,
+]
+
 
 def _worker(
     frame_queue: queue.Queue[MatLike | None],
     model: YOLO,
     event_queue: multiprocessing.Queue,
+    bounding_box_callback: BoundingBoxCallback,
 ):
 
     target_detected = False
@@ -74,10 +80,20 @@ def _worker(
                     currently_detected = True
 
                     # Draw Box
-                    # x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+                    x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+                    frame_height, frame_width = frame.shape[:2]
+                    label = f"{DETECTION_TARGET} {conf:.2f}"
+
+                    bounding_box_callback(
+                        True,
+                        x1 / frame_width * 100,
+                        y1 / frame_height * 100,
+                        (x2 - x1) / frame_width * 100,
+                        (y2 - y1) / frame_height * 100,
+                        label,
+                    )
 
                     # cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    # label = f"{DETECTION_TARGET} {conf:.2f}"
                     # cv2.putText(
                     #     frame,
                     #     label,
@@ -109,6 +125,7 @@ def _worker(
                     target_detected = False
                     event_queue.put({"type": "target_detected_ended"})
                     print_time("Detection Ended", "light_red")
+                    bounding_box_callback(False, 0, 0, 0, 0, "")
             elif frame_queue.empty() and not target_detected and not currently_detected:
                 event_queue.put({"type": "done_detecting_queue"})
 
@@ -119,15 +136,21 @@ def _worker(
 
 
 class YOLOProcessor:
-    def __init__(self, event_queue: multiprocessing.Queue, run_nth_frame=1):
+    def __init__(
+        self,
+        event_queue: multiprocessing.Queue,
+        run_nth_frame: int = 1,
+        bounding_box_callback: BoundingBoxCallback = (lambda *_: None),
+    ):
         self._frame_count = 0
         self.run_nth_frame = run_nth_frame
+        self.bounding_box_callback = bounding_box_callback
         self._frame_queue = queue.Queue(maxsize=MAX_QUEUE_SIZE)
         model = YOLO("yolo26x.pt")  # Consider changing from pytorch to TensorRT
 
         thread = threading.Thread(
             target=_worker,
-            args=(self._frame_queue, model, event_queue),
+            args=(self._frame_queue, model, event_queue, bounding_box_callback),
             name="YOLO",
             daemon=True,
         )

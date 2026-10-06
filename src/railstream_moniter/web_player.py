@@ -18,10 +18,12 @@ class webPlayer:
         self,
         url: str = "https://railstream.net/live-cameras/item/cptweed-guest",
         frame_callback: Callable[[MatLike]] = (lambda _: None),
+        print_console_log: bool = False,
     ):
         # url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
         self.url = url
         self.frame_callback = frame_callback
+        self.print_console_log = print_console_log
 
         self._frame_lock = threading.Lock()
         self._latest_frame = None
@@ -38,7 +40,9 @@ class webPlayer:
     async def _setup(self):
         await self._launch_browser()
 
-        self._page_loader = PageLoader.auto_select_loader(self._context, self.url, True)
+        self._page_loader = PageLoader.auto_select_loader(
+            self._context, self.url, self.print_console_log
+        )
         await self._page_loader.create()
 
         time.sleep(2)  # noqa ASYNC251
@@ -119,12 +123,21 @@ class webPlayer:
                 return None
             return self._latest_frame.copy()
 
-    def edit_bounding_box(self, *args):
+    def edit_bounding_box(
+        self,
+        show: bool | None = False,
+        x: float = 0,
+        y: float = 0,
+        w: float = 0,
+        h: float = 0,
+        text: str = "",
+    ):
         if self._page_loader is None:
             return
 
         fut = asyncio.run_coroutine_threadsafe(
-            self._page_loader.edit_bounding_box_async(*args), self._loop
+            self._page_loader.edit_bounding_box_async(show, x, y, w, h, text),
+            self._loop,
         )
         fut.add_done_callback(
             lambda f: (

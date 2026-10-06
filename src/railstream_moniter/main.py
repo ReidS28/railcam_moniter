@@ -1,5 +1,4 @@
 import multiprocessing
-import random
 import time
 from collections import deque
 
@@ -31,17 +30,19 @@ def main():
         movement_detector.add_frame(frame)
         # detection_handler.add_frame(frame)
 
-    movement_detector = MovementDetection(event_queue, run_nth_frame=2)
-    yolo_processer = YOLOProcessor(event_queue, run_nth_frame=4)
-
     url = "https://railstream.net/live-cameras/item/cptweed-guest"
     # url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
     # url = "https://railstream.net/live-cameras/item/fullerton-guest"
     # url = "https://railstream.net/live-cameras/item/oregon-guest"
     # url = "https://railstream.net/live-cameras/item/selma-guest"
-    player = webPlayer(
-        url,
-        frame_callback=on_frame,
+    player = webPlayer(url, frame_callback=on_frame, print_console_log=False)
+    movement_detector = MovementDetection(event_queue, run_nth_frame=2)
+    yolo_processer = YOLOProcessor(
+        event_queue,
+        run_nth_frame=4,
+        bounding_box_callback=lambda *args, **kwargs: player.edit_bounding_box(
+            *args, **kwargs
+        ),
     )
 
     def handle_event(event: dict) -> None:
@@ -68,20 +69,7 @@ def main():
             handle_event(event)
 
     try:
-        t = 0
         while True:
-            if player._page_loader:  # TODO: Remove after testing
-                if t == 0:
-                    player.edit_bounding_box(
-                        True,
-                        random.randint(0, 100),
-                        random.randint(0, 100),
-                        random.randint(0, 100),
-                        random.randint(0, 100),
-                        f"DATA: {random.randbytes(6).hex()}",
-                    )
-                t += 1
-                t %= 100
 
             drain_event_queue(event_queue)
 

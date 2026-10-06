@@ -34,8 +34,6 @@ window.setUpBoundingBoxes = function () {
 
 	window.boundingBoxes = [];
 	window.boundingBoxes.push(window.newBoundingBox());
-
-	window.editBoundingBox(window.boundingBoxes[0], true, 25, 25, 50, 50);
 };
 
 window.newBoundingBox = function () {
