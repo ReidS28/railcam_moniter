@@ -1,15 +1,18 @@
+import asyncio
 import datetime
 import os
 import subprocess
 import tempfile
+import threading
 from collections import deque
+from uuid import UUID
 
 import cv2
 import imageio_ffmpeg
 import numpy as np
 from cv2.typing import MatLike
 from slack_bot import SlackBot
-from utils import print_time
+from utils import IndexedFrame, print_time
 
 DEFAULT_PRE_ROLL_FRAMES = 30
 DEFAULT_VIDEO_SECONDS = 10
@@ -19,70 +22,96 @@ DEFAULT_VIDEO_FRAMES = DEFAULT_VIDEO_SECONDS * DEFAULT_FPS + 1
 
 class DetectionHandler:
     def __init__(
-        self, slack_bot: SlackBot, pre_roll_frames: int = DEFAULT_PRE_ROLL_FRAMES
+        self,
+        rolling_storage: deque[IndexedFrame],
+        slack_bot: SlackBot,
     ) -> None:
 
-        self._rolling_storage: deque[MatLike] = deque(maxlen=pre_roll_frames)
-
+        self.rolling_storage = rolling_storage
         self.slack_bot = slack_bot
 
         self._recording: bool = False
-        self._clip_frames: list[MatLike] = []
+        self._clip_frames: list[IndexedFrame] = []
         self._frames_remaining: int = 0
         self._current_file_path: str | None = None
         self._current_message: str | None = None
         self._fps: int = DEFAULT_FPS
 
-    def new_detection(self):
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+
+    def _run_loop(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def new_detection(
+        self, start_id: UUID | None = None, num_frames: int = DEFAULT_VIDEO_FRAMES
+    ):
+        # Use earliest frame id if start_id is none
+        if start_id is None:
+            if len(self.rolling_storage) > 0:
+                start_id = self.rolling_storage[0].id
+            else:
+                print_time("No frames to start recording", "red")
+                return
+
+        fut = asyncio.run_coroutine_threadsafe(
+            self.new_detection_async(start_id, num_frames), self._loop
+        )
+        fut.result()
+
+    async def new_detection_async(self, start_id: UUID, num_frames: int):
         now = datetime.datetime.now().astimezone()
         # file_name = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"
         file_name = "detection.mp4"
         file_path = f"detections/{file_name}"
 
-        self._current_message = f"Train Detected @ {now.strftime('%Y/%m/%d %H:%M:%S')}"
+        message = f"Train Detected @ {now.strftime('%Y/%m/%d %H:%M:%S')}"
 
-        self._start_recording(file_path)
-
-    def _start_recording(
-        self,
-        file_path: str,
-        video_frames: int = DEFAULT_VIDEO_FRAMES,
-        fps: int = DEFAULT_FPS,
-    ) -> None:
-        if self._recording or not self._rolling_storage:
-            return
-
-        self._recording = True
-        self._fps = fps
-        self._current_file_path = file_path
-
-        self._clip_frames = list(self._rolling_storage)
-        self._frames_remaining = video_frames - len(self._clip_frames)
-
-        # print_time(f"Starting recording: '{self._current_file_path}'")
-
-        if self._frames_remaining <= 0:
-            self._finish_recording()
-
-    def _finish_recording(self) -> None:
-        file_path = self._current_file_path
-        frames = self._clip_frames
-
-        self._recording = False
-        self._clip_frames = []
-        self._frames_remaining = 0
-
-        if file_path and frames:
+        frames = await self._gather_frames(start_id, num_frames)
+        if frames is None:
+            self.slack_bot.send_message(message)
+        else:
             self._save_clip(file_path, frames)
-
-        if self._current_file_path is not None:
             self.slack_bot.send_message(
-                message=self._current_message,
-                file_path=self._current_file_path,
+                message,
+                file_path,
             )
 
-        self._current_file_path = None
-        self._current_message = None
+    async def _gather_frames(
+        self,
+        start_id: UUID,
+        num_frames: int,
+        poll_interval: float = 0.5,
+        timeout: float | None = None,
+    ) -> list[MatLike] | None:
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout is None else loop.time() + timeout
+
+        frames: list[MatLike] = []
+        cursor = start_id
+        include_cursor = True
+
+        while True:  # Grab frames in chunks every poll_interval
+            snapshot = list(self.rolling_storage)
+
+            idx = next((i for i, f in enumerate(snapshot) if f.id == cursor), None)
+            if idx is None:  # If can't find cursor, give up
+                return None
+            new_items = snapshot[idx if include_cursor else idx + 1 :]
+            include_cursor = False
+
+            for item in new_items:
+                frames.append(item.frame)
+                cursor = item.id
+                if len(frames) == num_frames:
+                    return frames
+
+            if deadline is not None and loop.time() >= deadline:
+                return None
+
+            await asyncio.sleep(poll_interval)  # wait for new frames
 
     def _save_clip(self, file_path: str, frames: list[MatLike]) -> None:
         os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)

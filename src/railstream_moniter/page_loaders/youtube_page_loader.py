@@ -27,7 +27,9 @@ class YoutubePageLoader(PageLoader):
         if self.page is None:
             return
 
-        close_button = self.page.frame_locator("iframe#chatframe").locator("#close-button button")
+        close_button = self.page.frame_locator("iframe#chatframe").locator(
+            "#close-button button"
+        )
         await close_button.click()
 
     async def enter_fullscreen(self) -> None:

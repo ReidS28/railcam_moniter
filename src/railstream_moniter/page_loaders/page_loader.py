@@ -88,7 +88,7 @@ class PageLoader:
     async def edit_bounding_box_async(
         self,
         show: bool | None = False,
-        x: float= 0,
+        x: float = 0,
         y: float = 0,
         w: float = 0,
         h: float = 0,

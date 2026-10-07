@@ -10,7 +10,7 @@ from uuid import UUID
 import cv2
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
-from utils import IndexedFrame, print_time
+from utils import IndexedFrame, get_frame_from_id, print_time
 
 MAX_QUEUE_SIZE = 40
 
@@ -40,12 +40,10 @@ def _worker(
     while True:
         try:
             target_id = id_queue.get(timeout=0.03)
-            indexed_frame: IndexedFrame | None = None
-            for frame in rolling_storage:
-                if frame.id == target_id:
-                    indexed_frame = frame
-                    break
-            else:
+            indexed_frame: IndexedFrame | None = get_frame_from_id(
+                rolling_storage, target_id
+            )
+            if indexed_frame is None:
                 continue
 
         except queue.Empty:
@@ -163,7 +161,7 @@ class YOLODectection:
         )
         thread.start()
 
-    def add_id(self, id: UUID):
+    def add_frame_id(self, id: UUID):
         if self._frame_count == 0:
             # DEBUG
             if self._id_queue.full():

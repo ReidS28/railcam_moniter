@@ -1,3 +1,4 @@
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -35,3 +36,21 @@ def print_time(
             colored(f"[{timestamp}]", "blue")
             + colored(f" {string}", color, highlight_color, attrs)
         )
+
+
+def get_frame_index_from_id(
+    rolling_storage: deque[IndexedFrame], target_id: UUID
+) -> int | None:
+    for i, frame in enumerate(list(rolling_storage)):
+        if frame.id == target_id:
+            return i
+    return None
+
+
+def get_frame_from_id(
+    rolling_storage: deque[IndexedFrame], target_id: UUID
+) -> IndexedFrame | None:
+    for frame in rolling_storage:
+        if frame.id == target_id:
+            return frame
+    return None
