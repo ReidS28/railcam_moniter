@@ -33,20 +33,6 @@ class DetectionHandler:
         self._current_message: str | None = None
         self._fps: int = DEFAULT_FPS
 
-    def add_frame(self, frame: MatLike | None) -> None:
-        if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0:
-            print_time("Received invalid/empty frame. Skipping...", "yellow")
-            return
-
-        self._rolling_storage.append(frame)
-
-        if self._recording:
-            self._clip_frames.append(frame)
-            self._frames_remaining -= 1
-
-            if self._frames_remaining <= 0:
-                self._finish_recording()
-
     def new_detection(self):
         now = datetime.datetime.now().astimezone()
         # file_name = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"

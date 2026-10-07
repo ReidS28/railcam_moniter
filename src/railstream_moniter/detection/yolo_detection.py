@@ -1,14 +1,16 @@
 import multiprocessing
 import queue
 import threading
+from collections import deque
 from collections.abc import Callable, Iterator
+from queue import Queue
 from typing import cast
+from uuid import UUID
 
 import cv2
-from cv2.typing import MatLike
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
-from utils import print_time
+from utils import IndexedFrame, print_time
 
 MAX_QUEUE_SIZE = 40
 
@@ -25,7 +27,8 @@ BoundingBoxCallback = Callable[
 
 
 def _worker(
-    frame_queue: queue.Queue[MatLike | None],
+    rolling_storage: deque[IndexedFrame],
+    id_queue: queue.Queue[UUID],
     model: YOLO,
     event_queue: multiprocessing.Queue,
     bounding_box_callback: BoundingBoxCallback,
@@ -36,20 +39,28 @@ def _worker(
 
     while True:
         try:
-            frame = frame_queue.get(timeout=0.03)
+            target_id = id_queue.get(timeout=0.03)
+            indexed_frame: IndexedFrame | None = None
+            for frame in rolling_storage:
+                if frame.id == target_id:
+                    indexed_frame = frame
+                    break
+            else:
+                continue
+
         except queue.Empty:
             cv2.waitKey(1)
             continue
 
-        if frame is None:
-            frame_queue.task_done()
+        if indexed_frame is None:
+            id_queue.task_done()
             break
 
         # TODO: see why detection box stops at half of screen
         results = cast(
             Iterator[Results],
             model.predict(
-                frame,
+                indexed_frame.frame,
                 stream=True,
                 verbose=False,
                 conf=START_DETECTION_CONFIDENCE_THRESHOLD,
@@ -81,7 +92,7 @@ def _worker(
 
                     # Draw Box
                     x1, y1, x2, y2 = map(int, best_box.xyxy[0])
-                    frame_height, frame_width = frame.shape[:2]
+                    frame_height, frame_width = indexed_frame.frame.shape[:2]
                     label = f"{DETECTION_TARGET} {conf:.2f}"
 
                     bounding_box_callback(
@@ -108,48 +119,58 @@ def _worker(
                 if not target_detected:
                     target_detected = True
                     event_queue.put({"type": "target_detected_started"})
-                    print_time("Detection Started", "light_green")
+
             elif detection_frames <= -END_DETECTION_FRAMES:
                 if target_detected:
                     target_detected = False
                     event_queue.put({"type": "target_detected_ended"})
-                    print_time("Detection Ended", "light_red")
                     bounding_box_callback(False, 0, 0, 0, 0, "")
-            elif frame_queue.empty() and not target_detected and not currently_detected:
+
+            elif id_queue.empty() and not target_detected and not currently_detected:
                 event_queue.put({"type": "done_detecting_queue"})
 
-        frame_queue.task_done()
+        id_queue.task_done()
 
 
-class YOLOProcessor:
+class YOLODectection:
     def __init__(
         self,
         event_queue: multiprocessing.Queue,
+        rolling_storage: deque[IndexedFrame],
         run_nth_frame: int = 1,
         bounding_box_callback: BoundingBoxCallback = (lambda *_: None),
     ):
-        self._frame_count = 0
+        self.event_queue = event_queue
+        self.rolling_storage = rolling_storage
         self.run_nth_frame = run_nth_frame
         self.bounding_box_callback = bounding_box_callback
-        self._frame_queue = queue.Queue(maxsize=MAX_QUEUE_SIZE)
-        model = YOLO("yolo26x.pt")  # Consider changing from pytorch to TensorRT
+
+        self._frame_count = 0
+        self._id_queue: Queue[UUID] = queue.Queue(maxsize=MAX_QUEUE_SIZE)
+        self._model = YOLO("yolo26x.pt")  # Consider changing from pytorch to TensorRT
 
         thread = threading.Thread(
             target=_worker,
-            args=(self._frame_queue, model, event_queue, bounding_box_callback),
+            args=(
+                self.rolling_storage,
+                self._id_queue,
+                self._model,
+                self.event_queue,
+                self.bounding_box_callback,
+            ),
             name="YOLO",
             daemon=True,
         )
         thread.start()
 
-    def add_frame(self, frame: MatLike):
+    def add_id(self, id: UUID):
         if self._frame_count == 0:
             # DEBUG
-            if self._frame_queue.full():
+            if self._id_queue.full():
                 print_time(
-                    f"Frame added: {self._frame_queue.qsize()}", (109, 0, 128)
+                    f"ID added: {self._id_queue.qsize()}", (109, 0, 128)
                 )  # purple
-            self._frame_queue.put(frame)
+            self._id_queue.put(id)
 
         self._frame_count += 1
         if self._frame_count >= self.run_nth_frame:
