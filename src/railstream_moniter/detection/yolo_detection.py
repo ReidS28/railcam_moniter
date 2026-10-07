@@ -15,9 +15,9 @@ from utils import IndexedFrame, get_frame_from_id, print_time
 MAX_QUEUE_SIZE = 40
 
 DETECTION_TARGET = "TRAIN"
-START_DETECTION_CONFIDENCE_THRESHOLD = 0.2
+DETECTION_CONFIDENCE_THRESHOLD = 0.6
 
-START_DETECTION_FRAMES = 2
+START_DETECTION_FRAMES = 4
 END_DETECTION_FRAMES = 10
 
 BoundingBoxCallback = Callable[
@@ -61,7 +61,7 @@ def _worker(
                 indexed_frame.frame,
                 stream=True,
                 verbose=False,
-                conf=START_DETECTION_CONFIDENCE_THRESHOLD,
+                conf=DETECTION_CONFIDENCE_THRESHOLD,
                 imgsz=1280,
                 device=0,
             ),
@@ -85,22 +85,23 @@ def _worker(
                 best_box = max(target_boxes, key=lambda b: float(b.conf[0]))
                 conf = float(best_box.conf[0])
 
-                if conf > START_DETECTION_CONFIDENCE_THRESHOLD:
-                    currently_detected = True
+                currently_detected = True
 
-                    # Draw Box
-                    x1, y1, x2, y2 = map(int, best_box.xyxy[0])
-                    frame_height, frame_width = indexed_frame.frame.shape[:2]
-                    label = f"{DETECTION_TARGET} {conf:.2f}"
+                # Draw Box
+                x1, y1, x2, y2 = map(int, best_box.xyxy[0])
+                frame_height, frame_width = indexed_frame.frame.shape[:2]
+                label = f"{DETECTION_TARGET} {conf:.2f}"
 
-                    bounding_box_callback(
-                        True,
-                        x1 / frame_width * 100,
-                        y1 / frame_height * 100,
-                        (x2 - x1) / frame_width * 100,
-                        (y2 - y1) / frame_height * 100,
-                        label,
-                    )
+                bounding_box_callback(
+                    True,
+                    x1 / frame_width * 100,
+                    y1 / frame_height * 100,
+                    (x2 - x1) / frame_width * 100,
+                    (y2 - y1) / frame_height * 100,
+                    label,
+                )
+            else:
+                bounding_box_callback(False, 0, 0, 0, 0, "")
 
             if currently_detected:
                 detection_frames += 1
@@ -122,7 +123,6 @@ def _worker(
                 if target_detected:
                     target_detected = False
                     event_queue.put({"type": "target_detected_ended"})
-                    bounding_box_callback(False, 0, 0, 0, 0, "")
 
             elif id_queue.empty() and not target_detected and not currently_detected:
                 event_queue.put({"type": "done_detecting_queue"})

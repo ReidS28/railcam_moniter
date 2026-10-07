@@ -13,8 +13,8 @@ from web_player import webPlayer
 uuid.uuid4()
 PRE_ROLL_FRAMES = 30
 
-# url = "https://railstream.net/live-cameras/item/cptweed-guest"
-url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
+url = "https://railstream.net/live-cameras/item/cptweed-guest"
+# url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
 # url = "https://railstream.net/live-cameras/item/boyce-guest"
 # url = "https://railstream.net/live-cameras/item/fullerton-guest"
 # url = "https://railstream.net/live-cameras/item/oregon-guest"
