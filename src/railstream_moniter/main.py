@@ -13,13 +13,13 @@ from web_player import webPlayer
 uuid.uuid4()
 PRE_ROLL_FRAMES = 30
 
-url = "https://railstream.net/live-cameras/item/cptweed-guest"
+# url = "https://railstream.net/live-cameras/item/cptweed-guest"
 # url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
 # url = "https://railstream.net/live-cameras/item/boyce-guest"
 # url = "https://railstream.net/live-cameras/item/fullerton-guest"
 # url = "https://railstream.net/live-cameras/item/oregon-guest"
 # url = "https://railstream.net/live-cameras/item/selma-guest"
-# url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
+url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
 
 
 def main():
@@ -61,11 +61,14 @@ def main():
                 yolo_active = True
 
             case "target_detected_started":
+                print_time("",)
+                print_time("-----------------------------------------------------", "blue")
                 print_time("Detection Started", "light_green")
                 detection_handler.new_detection()
 
             case "target_detected_ended":
                 print_time("Detection Ended", "light_red")
+                print_time("-----------------------------------------------------", "blue")
 
             case "done_detecting_queue":
                 yolo_active = False

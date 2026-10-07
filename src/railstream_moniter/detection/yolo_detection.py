@@ -15,7 +15,7 @@ from utils import IndexedFrame, get_frame_from_id, print_time
 MAX_QUEUE_SIZE = 40
 
 DETECTION_TARGET = "TRAIN"
-DETECTION_CONFIDENCE_THRESHOLD = 0.6
+DETECTION_CONFIDENCE_THRESHOLD = 0.3
 
 START_DETECTION_FRAMES = 4
 END_DETECTION_FRAMES = 10
@@ -62,7 +62,7 @@ def _worker(
                 stream=True,
                 verbose=False,
                 conf=DETECTION_CONFIDENCE_THRESHOLD,
-                imgsz=1280,
+                imgsz=640,
                 device=0,
             ),
         )
