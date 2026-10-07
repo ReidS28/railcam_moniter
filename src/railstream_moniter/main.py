@@ -1,164 +1,98 @@
-import configparser
-import threading
+import multiprocessing
 import time
-import dearpygui.dearpygui as dpg
-import numpy as np
-from utils import print_time, BoundingBoxColor
+import uuid
+from collections import deque
 
-from stream_handler import StreamHandler
-from yolo_processor import YOLOProcessor
-from ui import StreamUI
-from detection_handler import DecectionHandler
+from cv2.typing import MatLike
+from detection.detection_handler import DetectionHandler
+from detection.yolo_detection import YOLODectection
+from slack_bot import SlackBot
+from utils import IndexedFrame, print_time
+from web_player import webPlayer
 
-# --- Global Variables ---
-config = None
-data_lock = None
-shared_data = {}
-streamer = None
-yolo_processor = None
-ui = None
-detection_handler = None
+uuid.uuid4()
+PRE_ROLL_FRAMES = 30
 
-target_detected = False
-detection_end_countdown = 0
-last_render_time = 0.0
-
-last_box = None
-current_frame = None
-detection_result = None
-
-TARGET_FPS = 30
-FRAME_DURATION_SEC = 1 / TARGET_FPS
-
-DETECTON_COUNTDOWN_FRAMES = 30
+# url = "https://railstream.net/live-cameras/item/cptweed-guest"
+url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
+# url = "https://railstream.net/live-cameras/item/boyce-guest"
+# url = "https://railstream.net/live-cameras/item/fullerton-guest"
+# url = "https://railstream.net/live-cameras/item/oregon-guest"
+# url = "https://railstream.net/live-cameras/item/selma-guest"
+# url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
 
 
 def main():
 
-    setup()
+    event_queue = multiprocessing.Queue(maxsize=10)
+    rolling_storage: deque[IndexedFrame] = deque(maxlen=PRE_ROLL_FRAMES)
 
-    while ui.is_running():
-        main_loop()
-        time.sleep(0.001)
+    slack_bot = SlackBot("#railstream-alerts")
+    detection_handler = DetectionHandler(rolling_storage, slack_bot)
 
-    cleanup()
+    yolo_active = False
 
-def setup():
-    global config, data_lock, shared_data, streamer, streamer_new_frame_event, yolo_processor, yolo_processor_new_frame_event, ui, detection_handler, target_detected, detection_end_countdown, last_render_time
+    def on_frame(frame: MatLike):
 
-    config = configparser.ConfigParser()
-    config.read("config.ini")
+        id = uuid.uuid4()
+        indexed_frame = IndexedFrame(frame, id, None)
 
-    target_detected = False
-    detection_end_countdown = 0
+        rolling_storage.append(indexed_frame)
+        yolo_detection.add_frame_id(id)
+        # detection_handler.add_id(id)
 
-    data_lock = threading.Lock()
-    shared_data = {
-        "latest_frame": None,
-        "detection_result": {
-            "confidence": 0.0,
-            "box": None,
-            "color": BoundingBoxColor.RED,
-        },
-    }
+    player = webPlayer(url, frame_callback=on_frame, print_console_log=False)
 
-    streamer_new_frame_event = threading.Event()
-    yolo_processor_new_frame_event = threading.Event()
+    yolo_detection = YOLODectection(
+        event_queue,
+        rolling_storage,
+        run_nth_frame=4,
+        bounding_box_callback=lambda *args, **kwargs: player.edit_bounding_box(
+            *args, **kwargs
+        ),
+    )
 
-    streamer = StreamHandler(config, shared_data, data_lock, streamer_new_frame_event)
-    streamer.daemon = True
-    streamer.start()
+    def handle_event(event: dict) -> None:
+        nonlocal yolo_active
+        event_type = event.get("type")
 
-    yolo_processor = YOLOProcessor(config, shared_data, data_lock, yolo_processor_new_frame_event)
-    yolo_processor.daemon = True
-    yolo_processor.start()
+        match event_type:
+            case "movement":
+                yolo_active = True
 
-    ui = StreamUI(config)
-    ui.create_ui()
+            case "target_detected_started":
+                print_time("Detection Started", "light_green")
+                detection_handler.new_detection()
 
-    detection_handler = DecectionHandler(config, shared_data, data_lock)
+            case "target_detected_ended":
+                print_time("Detection Ended", "light_red")
 
-    print_time("UI loop starting. Close the window to exit.")
+            case "done_detecting_queue":
+                yolo_active = False
 
-    last_render_time = time.time()
+            case _:
+                print_time(f"Unknown event type: {event_type!r}", "yellow")
 
-def main_loop():
-    global target_detected, detection_end_countdown, last_box, current_frame, detection_result, streamer_new_frame_event, yolo_processor_new_frame_event
+    def drain_event_queue(event_queue: multiprocessing.Queue):
+        while not event_queue.empty():
+            event = event_queue.get()
+            handle_event(event)
 
-    if streamer_new_frame_event.is_set():
-        streamer_new_frame_event.clear()
-        yolo_processor_new_frame_event.set()
+    try:
+        while True:
+            drain_event_queue(event_queue)
 
-        current_frame = None
-        with data_lock:
-            if shared_data["latest_frame"] is not None:
-                current_frame = shared_data["latest_frame"].copy()
-            if shared_data["detection_result"] is not None:
-                detection_result = shared_data["detection_result"].copy()
+            # if yolo_active:
+            #     if rolling_storage:
+            #         yolo_detection.add_id(rolling_storage.pop().id)
+            #     else:
+            #         pass
 
-        update_detection()
+            time.sleep(0.01)
 
-        if current_frame is not None:
-            ui.update_frame(current_frame, detection_result)
+    except KeyboardInterrupt:
+        player.end()
 
-    ui.render()
-
-def update_detection():
-    # TODO Use confidence to improve results
-    global target_detected, detection_end_countdown, current_frame, detection_result, last_box, detection_handler, DETECTON_COUNTDOWN_FRAMES
-
-    current_frame_detection = detection_result["box"] != None
-
-    orange = (255, 192, 128)
-
-    if current_frame_detection:
-        if not target_detected:
-            target_detected = True
-
-            detection_thread = threading.Thread(
-                target=detection_handler.new_detection,
-                args=(current_frame, detection_result),
-            )
-            detection_thread.start()
-
-        detection_end_countdown = DETECTON_COUNTDOWN_FRAMES
-    else:
-        if detection_end_countdown > 0:
-            detection_end_countdown -= 1
-        else:
-            if target_detected:
-                target_detected = False
-
-                detection_handler.end_detection()
-
-    if target_detected and current_frame_detection:
-        last_box = detection_result["box"]
-        detection_result["color"] = BoundingBoxColor.GREEN
-    elif target_detected:
-        detection_result["confidence"] = -1
-        detection_result["box"] = last_box
-        detection_result["color"] = BoundingBoxColor.YELLOW
-    else:
-        detection_result["color"] = None
-
-def cleanup():
-    # Access global variables (streamer, yolo_processor, ui)
-    print_time("Window closed, stopping stream threads...")
-
-    # Stop and join the threads
-    if yolo_processor:
-        yolo_processor.stop()
-        yolo_processor.join()
-
-    if streamer:
-        streamer.stop()
-        streamer.join()
-
-    # Clean up UI resources
-    if ui:
-        ui.cleanup()
-
-    print_time("Program exited gracefully.")
 
 if __name__ == "__main__":
     main()

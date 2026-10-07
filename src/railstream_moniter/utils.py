@@ -1,26 +1,56 @@
-import os
-import json
+from collections import deque
+from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
+
+from cv2.typing import MatLike
 from termcolor import colored
-from enum import Enum
 
 
-class BoundingBoxColor(Enum):
-    RED = (255, 0, 0, 255)  # (R, G, B, A)
-    BLUE = (0, 0, 255, 255)
-    GREEN = (0, 255, 0, 255)
-    YELLOW = (255, 255, 0, 255)
+@dataclass
+class IndexedFrame:
+    frame: MatLike
+    id: UUID
+    detection_results: DetectionResults | None
 
 
-def print_time(message="", color="white", highlight_color=None, attrs=[]):
+@dataclass
+class DetectionResults:
+    pass
+
+
+def print_time(
+    message="",
+    color: str | tuple[int, int, int] = "white",
+    highlight_color=None,
+    attrs=None,
+):
     """
     Print a message with timestamp in color
     """
     message_str = str(message)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # noqa
     strings = message_str.split("\n")
     for string in strings:
         print(
             colored(f"[{timestamp}]", "blue")
             + colored(f" {string}", color, highlight_color, attrs)
         )
+
+
+def get_frame_index_from_id(
+    rolling_storage: deque[IndexedFrame], target_id: UUID
+) -> int | None:
+    for i, frame in enumerate(list(rolling_storage)):
+        if frame.id == target_id:
+            return i
+    return None
+
+
+def get_frame_from_id(
+    rolling_storage: deque[IndexedFrame], target_id: UUID
+) -> IndexedFrame | None:
+    for frame in rolling_storage:
+        if frame.id == target_id:
+            return frame
+    return None

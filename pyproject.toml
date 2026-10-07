@@ -5,16 +5,30 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "bs4>=0.0.2",
-    "dearpygui>=2.2",
-    "ffmpeg-python>=0.2.0",
-    "opencv-python>=4.13.0.92",
-    "selenium>=4.41.0",
-    "slack-sdk>=3.41.0",
+    "imageio-ffmpeg>=0.6.0",
+    "numpy>=2.5.1",
+    "opencv-python>=5.0.0.93",
+    "pathlib>=1.0.1",
+    "playwright>=1.61.0",
+    "pre-commit>=4.6.1",
+    "slack-sdk>=3.43.0",
     "termcolor>=3.3.0",
-    "torch>=2.11.0",
-    "torchaudio>=2.11.0",
-    "torchvision>=0.26.0",
-    "ultralytics>=8.4.33",
-    "webdriver-manager>=4.0.2",
+    "torch>=2.13.0",
+    "torchvision>=0.28.0",
+    "ultralytics>=8.4.107",
+    "webdriver-manager>=4.1.2",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu132" }
+torchvision = { index = "pytorch-cu132" }
+
+[dependency-groups]
+dev = [
+    "coverage>=7.16.2",
 ]

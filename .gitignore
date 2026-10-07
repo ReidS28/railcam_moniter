@@ -1,20 +1,10 @@
-
-2025-07-31 14-40-10_loop.mp4
-
-2025-07-31 14-40-10.mkv
-
-yolovenv/
-yolov8s.pt
-yolov8m.pt
-detections/train_detection_20250808_153732.mp4
-
-detections/
-
-src/__pycache__/
-
-yolo11n.pt
-
 .env
 
-yolo11m.pt
+/test_files
+/uBOLite
+/src/chrome_profile
+src/railstream_moniter/page.html
 *.pyc
+*.pt
+*.mp4
+.coverage
