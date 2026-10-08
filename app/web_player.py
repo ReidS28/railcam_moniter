@@ -50,7 +50,7 @@ class webPlayer:
         await self.start_video_capture()
 
     async def _launch_browser(self):
-        project_root = Path(__file__).resolve().parents[2]
+        project_root = Path(__file__).resolve().parents[1]
         extension_path = project_root / "uBOLite"
 
         self._playwright = await async_playwright().start()

@@ -71,10 +71,10 @@ class DetectionHandler:
             self.slack_bot.send_message(message)
         else:
             self._save_clip(file_path, frames)
-            self.slack_bot.send_message(
-                message,
-                file_path,
-            )
+            # self.slack_bot.send_message(
+            #     message,
+            #     file_path,
+            # )
 
     async def _gather_frames(
         self,
