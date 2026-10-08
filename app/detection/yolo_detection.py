@@ -11,7 +11,15 @@ import constants
 import cv2
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
-from utils import IndexedFrame, get_frame_from_id, print_time
+from utils import DetectionResults, IndexedFrame, get_frame_from_id, print_time
+
+MAX_QUEUE_SIZE = 40
+
+DETECTION_TARGET = "TRAIN"
+DETECTION_CONFIDENCE_THRESHOLD = 0.3
+
+START_DETECTION_FRAMES = 4
+END_DETECTION_FRAMES = 10
 
 BoundingBoxCallback = Callable[
     [bool, float, float, float, float, str],
@@ -47,7 +55,6 @@ def _worker(
             id_queue.task_done()
             break
 
-        # TODO: see why detection box stops at half of screen
         results = cast(
             Iterator[Results],
             model.predict(
@@ -55,7 +62,7 @@ def _worker(
                 stream=True,
                 verbose=False,
                 conf=constants.YOLO_DETECTION_CONFIDENCE_THRESHOLD,
-                imgsz=640,
+                imgsz=640,  # this number seems to work best (It's what it was trained at)
                 device=0,
             ),
         )
@@ -85,6 +92,10 @@ def _worker(
                 frame_height, frame_width = indexed_frame.frame.shape[:2]
                 label = f"{constants.DETECTION_TARGET} {conf:.2f}"
 
+                indexed_frame.detection_results = DetectionResults(
+                    True, x1, y1, x2, y2, conf
+                )
+
                 bounding_box_callback(
                     True,
                     x1 / frame_width * 100,
@@ -94,6 +105,7 @@ def _worker(
                     label,
                 )
             else:
+                indexed_frame.detection_results = DetectionResults(False, 0, 0, 0, 0, 0)
                 bounding_box_callback(False, 0, 0, 0, 0, "")
 
             if currently_detected:

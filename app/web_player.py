@@ -103,7 +103,7 @@ class webPlayer:
                             self._latest_frame = frame
             except Exception as e:  # noqa BLE001
                 print_time(f"failed to grab video frame: {e}", "red")
-                await asyncio.sleep(0.5)  # avoid a hot error loop
+                await asyncio.sleep(0.5)
 
             await asyncio.sleep(max(0.0, interval - (time.perf_counter() - t0)))
 
