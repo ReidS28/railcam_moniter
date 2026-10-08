@@ -44,6 +44,7 @@ class DetectionHandler:
         self,
         start_id: UUID | None = None,
         num_frames: int = constants.OUTPUT_VIDEO_FRAMES,
+        include_bounding_boxes: bool = True,
     ):
         # Use earliest frame id if start_id is none
         if start_id is None:
@@ -116,7 +117,7 @@ class DetectionHandler:
                     and bounding_box.traget_detected
                 ):
                     color = (0, 255, 0)
-                    label = f"{DETECTION_TARGET} {bounding_box.conf:.2f}"
+                    label = f"{constants.DETECTION_TARGET} {bounding_box.conf:.2f}"
                     x1 = int(bounding_box.x1)
                     y1 = int(bounding_box.y1)
                     x2 = int(bounding_box.x2)
