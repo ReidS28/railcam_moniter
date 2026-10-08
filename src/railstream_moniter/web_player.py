@@ -47,7 +47,7 @@ class webPlayer:
 
         time.sleep(2)  # noqa ASYNC251
 
-        await self.start_screencast()
+        await self.start_video_capture()
 
     async def _launch_browser(self):
         project_root = Path(__file__).resolve().parents[2]
@@ -79,49 +79,33 @@ class webPlayer:
         asyncio.set_event_loop(self._loop)
         self._loop.run_forever()
 
-    async def start_screencast(self, quality: int = 80, every_nth_frame: int = 1):
+    async def start_video_capture(self, quality: float = 0.8, fps: int = 30):
+        self._capture_stop = False
+        self._capture_task = asyncio.create_task(self._capture_loop(quality, fps))
+        print_time("Video capture started", "green")
+
+    async def _capture_loop(self, quality: float, fps: int):
         if self._page_loader is None or self._page_loader.page is None:
             return
 
-        self._cdp = await self._context.new_cdp_session(self._page_loader.page)
-        self._cdp.on("Page.screencastFrame", self._on_screencast_frame)
+        interval = 1.0 / fps
+        while not self._capture_stop:
+            t0 = time.perf_counter()
+            try:
+                page = self._page_loader.page
+                b64 = await page.evaluate("q => window.grabVideoFrame(q)", quality)
+                if b64:
+                    arr = np.frombuffer(base64.b64decode(b64), dtype=np.uint8)
+                    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                    if frame is not None:
+                        self.frame_callback(frame)
+                        with self._frame_lock:
+                            self._latest_frame = frame
+            except Exception as e:  # noqa BLE001
+                print_time(f"failed to grab video frame: {e}", "red")
+                await asyncio.sleep(0.5)  # avoid a hot error loop
 
-        await self._cdp.send(
-            "Page.startScreencast",
-            {"format": "jpeg", "quality": quality, "everyNthFrame": every_nth_frame},
-        )
-        print_time("Screencast started", "green")
-
-    def _on_screencast_frame(self, params):
-        try:
-            img_bytes = base64.b64decode(params["data"])
-            arr = np.frombuffer(img_bytes, dtype=np.uint8)
-            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-
-            if frame is not None:
-                self.frame_callback(frame)
-                with self._frame_lock:
-                    self._latest_frame = frame
-
-        except Exception as e:  # noqa BLE001
-            print_time(f"failed to decode screencast frame: {e}", "red")
-
-        finally:
-            asyncio.run_coroutine_threadsafe(
-                self._ack_frame(params["sessionId"]), self._loop
-            )
-
-    async def _ack_frame(self, session_id):
-        try:
-            await self._cdp.send("Page.screencastFrameAck", {"sessionId": session_id})
-        except Exception as e:  # noqa BLE001
-            print_time(f"failed to ack screencast frame: {e}", "yellow")
-
-    def get_frame(self):
-        with self._frame_lock:
-            if self._latest_frame is None:
-                return None
-            return self._latest_frame.copy()
+            await asyncio.sleep(max(0.0, interval - (time.perf_counter() - t0)))
 
     def edit_bounding_box(
         self,
@@ -148,10 +132,14 @@ class webPlayer:
 
     def end(self):
         async def _shutdown():
-            try:
-                await self._cdp.send("Page.stopScreencast")
-            except Exception:  # noqa
-                pass
+            self._capture_stop = True
+            task = getattr(self, "_capture_task", None)
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
             if self._page_loader is not None and self._page_loader.page is not None:
                 await self._page_loader.page.close()
             await self._context.close()

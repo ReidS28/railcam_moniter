@@ -62,13 +62,14 @@ def main():
 
             case "target_detected_started":
                 print_time("",)
-                print_time("-----------------------------------------------------", "blue")
+                print_time("",)
+                print_time("------------------------------------------------------", "blue")
                 print_time("Detection Started", "light_green")
                 detection_handler.new_detection()
 
             case "target_detected_ended":
                 print_time("Detection Ended", "light_red")
-                print_time("-----------------------------------------------------", "blue")
+                print_time("------------------------------------------------------", "blue")
 
             case "done_detecting_queue":
                 yolo_active = False
@@ -84,12 +85,6 @@ def main():
     try:
         while True:
             drain_event_queue(event_queue)
-
-            # if yolo_active:
-            #     if rolling_storage:
-            #         yolo_detection.add_id(rolling_storage.pop().id)
-            #     else:
-            #         pass
 
             time.sleep(0.01)
 
