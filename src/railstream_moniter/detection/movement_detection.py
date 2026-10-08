@@ -1,3 +1,7 @@
+# -----------------------------
+#   THIS CLASS IS NOT USED!!!
+# -----------------------------
+
 import multiprocessing
 
 import cv2

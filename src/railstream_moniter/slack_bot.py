@@ -1,13 +1,9 @@
-import logging
 import os
 
 from dotenv import find_dotenv, load_dotenv
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from utils import print_time
-
-logging.basicConfig(level=logging.INFO)
-# logging.basicConfig(level=logging.DEBUG)
 
 
 class SlackBot:

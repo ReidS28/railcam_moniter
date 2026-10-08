@@ -7,17 +7,13 @@ import threading
 from collections import deque
 from uuid import UUID
 
+import constants
 import cv2
 import imageio_ffmpeg
 import numpy as np
 from cv2.typing import MatLike
 from slack_bot import SlackBot
 from utils import IndexedFrame, print_time
-
-DEFAULT_PRE_ROLL_FRAMES = 30
-DEFAULT_VIDEO_SECONDS = 10
-DEFAULT_FPS = 30
-DEFAULT_VIDEO_FRAMES = DEFAULT_VIDEO_SECONDS * DEFAULT_FPS + 1
 
 
 class DetectionHandler:
@@ -35,8 +31,7 @@ class DetectionHandler:
         self._frames_remaining: int = 0
         self._current_file_path: str | None = None
         self._current_message: str | None = None
-        self._fps: int = DEFAULT_FPS
-
+        self._fps: int = constants.OUTPUT_FPS
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -46,7 +41,9 @@ class DetectionHandler:
         self._loop.run_forever()
 
     def new_detection(
-        self, start_id: UUID | None = None, num_frames: int = DEFAULT_VIDEO_FRAMES
+        self,
+        start_id: UUID | None = None,
+        num_frames: int = constants.OUTPUT_VIDEO_FRAMES,
     ):
         # Use earliest frame id if start_id is none
         if start_id is None:
