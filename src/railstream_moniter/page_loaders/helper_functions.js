@@ -101,11 +101,9 @@ window.grabVideoFrame = function (quality = 0.8) {
 	const v = document.querySelector("video");
 	if (!v || v.readyState < 2 || !v.videoWidth) return null;
 
-	// Skip if the video hasn't advanced since the last grab
 	if (v.currentTime === window.__lastVideoTime) return null;
 	window.__lastVideoTime = v.currentTime;
 
-	// Reuse one canvas instead of allocating every frame
 	if (!window.__grabCanvas) {
 		window.__grabCanvas = document.createElement("canvas");
 		window.__grabCtx = window.__grabCanvas.getContext("2d");
@@ -116,5 +114,5 @@ window.grabVideoFrame = function (quality = 0.8) {
 		c.height = v.videoHeight;
 	}
 	window.__grabCtx.drawImage(v, 0, 0);
-	return c.toDataURL("image/jpeg", quality).split(",")[1]; // base64 only
+	return c.toDataURL("image/jpeg", quality).split(",")[1];
 };

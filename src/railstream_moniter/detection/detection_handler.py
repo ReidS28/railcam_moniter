@@ -19,6 +19,10 @@ DEFAULT_VIDEO_SECONDS = 10
 DEFAULT_FPS = 30
 DEFAULT_VIDEO_FRAMES = DEFAULT_VIDEO_SECONDS * DEFAULT_FPS + 1
 
+INCLUDE_BOUNDING_BOXES = True
+
+DETECTION_TARGET = "TRAIN"  # TODO: Move settings like this somewhere else (It's set in multiple places)
+
 
 class DetectionHandler:
     def __init__(
@@ -46,7 +50,10 @@ class DetectionHandler:
         self._loop.run_forever()
 
     def new_detection(
-        self, start_id: UUID | None = None, num_frames: int = DEFAULT_VIDEO_FRAMES
+        self,
+        start_id: UUID | None = None,
+        num_frames: int = DEFAULT_VIDEO_FRAMES,
+        include_bounding_boxes: bool = INCLUDE_BOUNDING_BOXES,
     ):
         # Use earliest frame id if start_id is none
         if start_id is None:
@@ -57,11 +64,17 @@ class DetectionHandler:
                 return
 
         fut = asyncio.run_coroutine_threadsafe(
-            self.new_detection_async(start_id, num_frames), self._loop
+            self.new_detection_async(start_id, num_frames, include_bounding_boxes),
+            self._loop,
         )
         fut.result()
 
-    async def new_detection_async(self, start_id: UUID, num_frames: int):
+    async def new_detection_async(
+        self,
+        start_id: UUID,
+        num_frames: int,
+        include_bounding_boxes: bool,
+    ):
         now = datetime.datetime.now().astimezone()
         # file_name = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}.mp4"
         file_name = "detection.mp4"
@@ -69,7 +82,7 @@ class DetectionHandler:
 
         message = f"Train Detected @ {now.strftime('%Y/%m/%d %H:%M:%S')}"
 
-        frames = await self._gather_frames(start_id, num_frames)
+        frames = await self._gather_frames(start_id, num_frames, include_bounding_boxes)
         if frames is None:
             self.slack_bot.send_message(message)
         else:
@@ -83,6 +96,7 @@ class DetectionHandler:
         self,
         start_id: UUID,
         num_frames: int,
+        include_bounding_boxes: bool,
         poll_interval: float = 0.5,
         timeout: float | None = None,
     ) -> list[MatLike] | None:
@@ -93,6 +107,7 @@ class DetectionHandler:
         cursor = start_id
         include_cursor = True
 
+        bounding_box = None
         while True:  # Grab frames in chunks every poll_interval
             snapshot = list(self.rolling_storage)
 
@@ -103,6 +118,31 @@ class DetectionHandler:
             include_cursor = False
 
             for item in new_items:
+                if item.detection_results is not None:
+                    bounding_box = item.detection_results
+                if (
+                    include_bounding_boxes
+                    and bounding_box is not None
+                    and bounding_box.traget_detected
+                ):
+                    color = (0, 255, 0)
+                    label = f"{DETECTION_TARGET} {bounding_box.conf:.2f}"
+                    x1 = int(bounding_box.x1)
+                    y1 = int(bounding_box.y1)
+                    x2 = int(bounding_box.x2)
+                    y2 = int(bounding_box.y2)
+
+                    cv2.rectangle(item.frame, (x1, y1), (x2, y2), color, 2)
+                    cv2.putText(
+                        item.frame,
+                        label,
+                        (x1, y1 - 10),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale=0.6,
+                        color=color,
+                        thickness=2,
+                        lineType=cv2.LINE_AA,
+                    )
                 frames.append(item.frame)
                 cursor = item.id
                 if len(frames) == num_frames:

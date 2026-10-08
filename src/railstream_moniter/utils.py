@@ -16,7 +16,12 @@ class IndexedFrame:
 
 @dataclass
 class DetectionResults:
-    pass
+    traget_detected: bool
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    conf: float
 
 
 def print_time(
