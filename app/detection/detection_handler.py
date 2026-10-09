@@ -7,21 +7,14 @@ import threading
 from collections import deque
 from uuid import UUID
 
+import constants
 import cv2
 import imageio_ffmpeg
 import numpy as np
+from config import config
 from cv2.typing import MatLike
 from slack_bot import SlackBot
 from utils import IndexedFrame, print_time
-
-DEFAULT_PRE_ROLL_FRAMES = 30
-DEFAULT_VIDEO_SECONDS = 10
-DEFAULT_FPS = 30
-DEFAULT_VIDEO_FRAMES = DEFAULT_VIDEO_SECONDS * DEFAULT_FPS + 1
-
-INCLUDE_BOUNDING_BOXES = True
-
-DETECTION_TARGET = "TRAIN"  # TODO: Move settings like this somewhere else (It's set in multiple places)
 
 
 class DetectionHandler:
@@ -39,8 +32,7 @@ class DetectionHandler:
         self._frames_remaining: int = 0
         self._current_file_path: str | None = None
         self._current_message: str | None = None
-        self._fps: int = DEFAULT_FPS
-
+        self._fps: int = constants.OUTPUT_FPS
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -52,8 +44,8 @@ class DetectionHandler:
     def new_detection(
         self,
         start_id: UUID | None = None,
-        num_frames: int = DEFAULT_VIDEO_FRAMES,
-        include_bounding_boxes: bool = INCLUDE_BOUNDING_BOXES,
+        num_frames: int = constants.OUTPUT_VIDEO_FRAMES,
+        include_bounding_boxes: bool = True,
     ):
         # Use earliest frame id if start_id is none
         if start_id is None:
@@ -84,13 +76,15 @@ class DetectionHandler:
 
         frames = await self._gather_frames(start_id, num_frames, include_bounding_boxes)
         if frames is None:
-            self.slack_bot.send_message(message)
+            if config["dev"].getboolean("send_message"):
+                self.slack_bot.send_message(message)
         else:
             self._save_clip(file_path, frames)
-            self.slack_bot.send_message(
-                message,
-                file_path,
-            )
+            if config["dev"].getboolean("send_message"):
+                self.slack_bot.send_message(
+                    message,
+                    file_path,
+                )
 
     async def _gather_frames(
         self,
@@ -126,7 +120,7 @@ class DetectionHandler:
                     and bounding_box.traget_detected
                 ):
                     color = (0, 255, 0)
-                    label = f"{DETECTION_TARGET} {bounding_box.conf:.2f}"
+                    label = f"{constants.DETECTION_TARGET} {bounding_box.conf:.2f}"
                     x1 = int(bounding_box.x1)
                     y1 = int(bounding_box.y1)
                     x2 = int(bounding_box.x2)

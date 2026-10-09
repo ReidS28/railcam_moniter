@@ -7,6 +7,7 @@ from queue import Queue
 from typing import cast
 from uuid import UUID
 
+import constants
 import cv2
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
@@ -60,7 +61,7 @@ def _worker(
                 indexed_frame.frame,
                 stream=True,
                 verbose=False,
-                conf=DETECTION_CONFIDENCE_THRESHOLD,
+                conf=constants.YOLO_DETECTION_CONFIDENCE_THRESHOLD,
                 imgsz=640,  # this number seems to work best (It's what it was trained at)
                 device=0,
             ),
@@ -77,7 +78,7 @@ def _worker(
             target_boxes = [
                 box
                 for box in boxes
-                if model.names[int(box.cls[0])].upper() == DETECTION_TARGET
+                if model.names[int(box.cls[0])].upper() == constants.DETECTION_TARGET
             ]
 
             if target_boxes:
@@ -89,7 +90,7 @@ def _worker(
                 # Draw Box
                 x1, y1, x2, y2 = map(int, best_box.xyxy[0])
                 frame_height, frame_width = indexed_frame.frame.shape[:2]
-                label = f"{DETECTION_TARGET} {conf:.2f}"
+                label = f"{constants.DETECTION_TARGET} {conf:.2f}"
 
                 indexed_frame.detection_results = DetectionResults(
                     True, x1, y1, x2, y2, conf
@@ -115,15 +116,16 @@ def _worker(
                 detection_frames = 0
 
             detection_frames = max(
-                -END_DETECTION_FRAMES, min(START_DETECTION_FRAMES, detection_frames)
+                -constants.YOLO_END_DETECTION_FRAMES,
+                min(constants.YOLO_START_DETECTION_FRAMES, detection_frames),
             )
 
-            if detection_frames >= START_DETECTION_FRAMES:
+            if detection_frames >= constants.YOLO_START_DETECTION_FRAMES:
                 if not target_detected:
                     target_detected = True
                     event_queue.put({"type": "target_detected_started"})
 
-            elif detection_frames <= -END_DETECTION_FRAMES:
+            elif detection_frames <= -constants.YOLO_END_DETECTION_FRAMES:
                 if target_detected:
                     target_detected = False
                     event_queue.put({"type": "target_detected_ended"})
@@ -148,7 +150,7 @@ class YOLODectection:
         self.bounding_box_callback = bounding_box_callback
 
         self._frame_count = 0
-        self._id_queue: Queue[UUID] = queue.Queue(maxsize=MAX_QUEUE_SIZE)
+        self._id_queue: Queue[UUID] = queue.Queue(maxsize=constants.YOLO_MAX_QUEUE_SIZE)
         self._model = YOLO("yolo26x.pt")  # Consider changing from pytorch to TensorRT
 
         thread = threading.Thread(

@@ -3,6 +3,8 @@ import time
 import uuid
 from collections import deque
 
+import constants
+from config import config
 from cv2.typing import MatLike
 from detection.detection_handler import DetectionHandler
 from detection.yolo_detection import YOLODectection
@@ -10,22 +12,11 @@ from slack_bot import SlackBot
 from utils import IndexedFrame, print_time
 from web_player import webPlayer
 
-uuid.uuid4()
-PRE_ROLL_FRAMES = 30
-
-url = "https://railstream.net/live-cameras/item/cptweed-guest"
-# url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
-# url = "https://railstream.net/live-cameras/item/boyce-guest"
-# url = "https://railstream.net/live-cameras/item/fullerton-guest"
-# url = "https://railstream.net/live-cameras/item/oregon-guest"
-# url = "https://railstream.net/live-cameras/item/selma-guest"
-# url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
-
 
 def main():
 
     event_queue = multiprocessing.Queue(maxsize=10)
-    rolling_storage: deque[IndexedFrame] = deque(maxlen=PRE_ROLL_FRAMES)
+    rolling_storage: deque[IndexedFrame] = deque(maxlen=constants.PRE_ROLL_FRAMES)
 
     slack_bot = SlackBot("#railstream-alerts")
     detection_handler = DetectionHandler(rolling_storage, slack_bot)
@@ -41,7 +32,9 @@ def main():
         yolo_detection.add_frame_id(id)
         # detection_handler.add_id(id)
 
-    player = webPlayer(url, frame_callback=on_frame, print_console_log=False)
+    player = webPlayer(
+        config["general"]["url"], frame_callback=on_frame, print_console_log=False
+    )
 
     yolo_detection = YOLODectection(
         event_queue,
@@ -61,15 +54,23 @@ def main():
                 yolo_active = True
 
             case "target_detected_started":
-                print_time("",)
-                print_time("",)
-                print_time("------------------------------------------------------", "blue")
+                print_time(
+                    "",
+                )
+                print_time(
+                    "",
+                )
+                print_time(
+                    "------------------------------------------------------", "blue"
+                )
                 print_time("Detection Started", "light_green")
                 detection_handler.new_detection()
 
             case "target_detected_ended":
                 print_time("Detection Ended", "light_red")
-                print_time("------------------------------------------------------", "blue")
+                print_time(
+                    "------------------------------------------------------", "blue"
+                )
 
             case "done_detecting_queue":
                 yolo_active = False
