@@ -11,6 +11,7 @@ import constants
 import cv2
 import imageio_ffmpeg
 import numpy as np
+from config import config
 from cv2.typing import MatLike
 from slack_bot import SlackBot
 from utils import IndexedFrame, print_time
@@ -75,13 +76,15 @@ class DetectionHandler:
 
         frames = await self._gather_frames(start_id, num_frames, include_bounding_boxes)
         if frames is None:
-            self.slack_bot.send_message(message)
+            if config["dev"].getboolean("send_message"):
+                self.slack_bot.send_message(message)
         else:
             self._save_clip(file_path, frames)
-            # self.slack_bot.send_message(
-            #     message,
-            #     file_path,
-            # )
+            if config["dev"].getboolean("send_message"):
+                self.slack_bot.send_message(
+                    message,
+                    file_path,
+                )
 
     async def _gather_frames(
         self,

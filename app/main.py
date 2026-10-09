@@ -4,22 +4,13 @@ import uuid
 from collections import deque
 
 import constants
+from config import config
 from cv2.typing import MatLike
 from detection.detection_handler import DetectionHandler
 from detection.yolo_detection import YOLODectection
 from slack_bot import SlackBot
 from utils import IndexedFrame, print_time
 from web_player import webPlayer
-
-uuid.uuid4()
-
-url = "https://railstream.net/live-cameras/item/cptweed-guest"
-# url = "https://railstream.net/live-cameras/item/fostoria-oh-east-guest"
-# url = "https://railstream.net/live-cameras/item/boyce-guest"
-# url = "https://railstream.net/live-cameras/item/fullerton-guest"
-# url = "https://railstream.net/live-cameras/item/oregon-guest"
-# url = "https://railstream.net/live-cameras/item/selma-guest"
-# url = "https://www.youtube.com/watch?v=ssuM6NJQ2no"
 
 
 def main():
@@ -41,7 +32,9 @@ def main():
         yolo_detection.add_frame_id(id)
         # detection_handler.add_id(id)
 
-    player = webPlayer(url, frame_callback=on_frame, print_console_log=False)
+    player = webPlayer(
+        config["general"]["url"], frame_callback=on_frame, print_console_log=False
+    )
 
     yolo_detection = YOLODectection(
         event_queue,
