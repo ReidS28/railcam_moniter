@@ -21,16 +21,14 @@ def main():
     slack_bot = SlackBot("#railstream-alerts")
     detection_handler = DetectionHandler(rolling_storage, slack_bot)
 
-    yolo_active = False
-
     def on_frame(frame: MatLike):
 
         id = uuid.uuid4()
         indexed_frame = IndexedFrame(frame, id, None)
 
         rolling_storage.append(indexed_frame)
-        yolo_detection.add_frame_id(id)
-        # detection_handler.add_id(id)
+        if yolo_detection:
+            yolo_detection.add_frame_id(id)
 
     player = webPlayer(
         config["general"]["url"], frame_callback=on_frame, print_console_log=False
@@ -46,12 +44,11 @@ def main():
     )
 
     def handle_event(event: dict) -> None:
-        nonlocal yolo_active
         event_type = event.get("type")
 
         match event_type:
             case "movement":
-                yolo_active = True
+                pass
 
             case "target_detected_started":
                 print_time(
@@ -73,7 +70,7 @@ def main():
                 )
 
             case "done_detecting_queue":
-                yolo_active = False
+                pass
 
             case _:
                 print_time(f"Unknown event type: {event_type!r}", "yellow")
