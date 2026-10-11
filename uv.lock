@@ -965,7 +965,7 @@ wheels = [
 ]
 
 [[package]]
-name = "railstream-moniter"
+name = "railcam-moniter"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

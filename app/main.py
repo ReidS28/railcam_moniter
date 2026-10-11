@@ -18,9 +18,10 @@ def main():
     event_queue = multiprocessing.Queue(maxsize=10)
     rolling_storage: deque[IndexedFrame] = deque(maxlen=constants.PRE_ROLL_FRAMES)
 
-    slack_bot = SlackBot("#railstream-alerts")
+    slack_bot = SlackBot("#railcam-alerts")
     detection_handler = DetectionHandler(rolling_storage, slack_bot)
 
+    yolo_detection = None
     def on_frame(frame: MatLike):
 
         id = uuid.uuid4()
