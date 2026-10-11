@@ -22,6 +22,7 @@ def main():
     detection_handler = DetectionHandler(rolling_storage, slack_bot)
 
     yolo_detection = None
+
     def on_frame(frame: MatLike):
 
         id = uuid.uuid4()
