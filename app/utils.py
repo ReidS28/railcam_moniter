@@ -8,20 +8,20 @@ from termcolor import colored
 
 
 @dataclass
-class IndexedFrame:
-    frame: MatLike
-    id: UUID
-    detection_results: DetectionResults | None
-
-
-@dataclass
 class DetectionResults:
-    traget_detected: bool
+    target_detected: bool
     x1: float
     y1: float
     x2: float
     y2: float
     conf: float
+
+
+@dataclass
+class IndexedFrame:
+    frame: MatLike
+    id: UUID
+    detection_results: DetectionResults | None
 
 
 def print_time(
