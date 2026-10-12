@@ -1,8 +1,20 @@
 window.setUpBoundingBoxes = function () {
 	window.createBoundingBoxContiner();
 
+	window.boundingBoxColors = [
+		"#00ff00",
+		"#ff444f",
+		"#0004ff",
+		"#00eeff",
+		"#ffaa00",
+		"#00ff8c",
+		"#fff700",
+		"#aa00ff",
+		"#ff0000",
+	];
+	window.boundingBoxColorIndex = 0;
+
 	window.boundingBoxes = [];
-	window.boundingBoxes.push(window.newBoundingBox());
 };
 
 window.createBoundingBoxContiner = function () {
@@ -39,7 +51,10 @@ window.createBoundingBoxContiner = function () {
 window.newBoundingBox = function () {
 	const textSize = 18;
 	const textPaddingY = 4;
-	const color = "#00ff00";
+
+	const color = window.boundingBoxColors[window.boundingBoxColorIndex];
+	window.boundingBoxColorIndex =
+		(window.boundingBoxColorIndex + 1) % window.boundingBoxColors.length;
 
 	container = document.getElementById("my-full-page-div");
 	div = document.createElement("div");
@@ -73,11 +88,14 @@ window.newBoundingBox = function () {
 	div.style.height = "0vh";
 	text.innerText = "HELLO BOX";
 
-	return div;
+	return {
+		div: div,
+		inUse: false,
+	};
 };
 
 window.editBoundingBox = function (
-	div,
+	boundingBox = NaN,
 	show = false,
 	x = 0,
 	y = 0,
@@ -85,16 +103,40 @@ window.editBoundingBox = function (
 	h = 0,
 	text = "",
 ) {
-	if (show) {
-		div.style.visibility = "visible";
-	} else {
-		div.style.visibility = "hidden";
+	if (!boundingBox) {
+		found = false;
+		for (i in window.boundingBoxes) {
+			if (!window.boundingBoxes[i].inUse) {
+				boundingBox = window.boundingBoxes[i];
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
+			boundingBox = window.newBoundingBox();
+			window.boundingBoxes.push(boundingBox);
+		}
 	}
-	div.style.top = `${y}vh`;
-	div.style.left = `${x}vw`;
-	div.style.width = `${w}vw`;
-	div.style.height = `${h}vh`;
-	div.firstElementChild.innerText = text;
+
+	if (show) {
+		boundingBox.div.style.visibility = "visible";
+		boundingBox.inUse = true;
+	} else {
+		boundingBox.div.style.visibility = "hidden";
+		boundingBox.inUse = false;
+	}
+	boundingBox.div.style.top = `${y}vh`;
+	boundingBox.div.style.left = `${x}vw`;
+	boundingBox.div.style.width = `${w}vw`;
+	boundingBox.div.style.height = `${h}vh`;
+	boundingBox.div.firstElementChild.innerText = text;
+};
+
+window.resetBoundingBoxes = function () {
+	for (i in window.boundingBoxes) {
+		window.editBoundingBox(window.boundingBoxes[i], false);
+	}
 };
 
 window.grabVideoFrame = function (quality = 0.8) {

@@ -99,5 +99,12 @@ class PageLoader:
             return
 
         await self.page.evaluate(
-            f"window.editBoundingBox(window.boundingBoxes[0], {str(show).lower()}, {x}, {y}, {w}, {h}, '{text}');"
+            f"window.editBoundingBox(NaN, {str(show).lower()}, {x}, {y}, {w}, {h}, '{text}');"
         )
+
+    async def reset_bounding_box_async(self):
+        if self.page is None:
+            print_time("None")
+            return
+
+        await self.page.evaluate("window.resetBoundingBoxes();")

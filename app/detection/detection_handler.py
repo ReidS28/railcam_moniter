@@ -117,8 +117,8 @@ class DetectionHandler:
                 if (
                     include_bounding_boxes
                     and bounding_box is not None
-                    and bounding_box.target_detected
                 ):
+                    
                     color = (0, 255, 0)
                     label = f"{constants.DETECTION_TARGET} {bounding_box.conf:.2f}"
                     x1 = int(bounding_box.x1)

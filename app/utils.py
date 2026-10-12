@@ -1,27 +1,19 @@
 from collections import deque
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
 from cv2.typing import MatLike
 from termcolor import colored
-
-
-@dataclass
-class DetectionResults:
-    target_detected: bool
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-    conf: float
+from ultralytics.engine.results import Results
 
 
 @dataclass
 class IndexedFrame:
     frame: MatLike
     id: UUID
-    detection_results: DetectionResults | None
+    detection_results: list[Results] | None
 
 
 def print_time(
