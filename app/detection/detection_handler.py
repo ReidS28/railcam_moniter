@@ -112,13 +112,9 @@ class DetectionHandler:
             include_cursor = False
 
             for item in new_items:
-                if item.detection_results is not None:
-                    bounding_box = item.detection_results
-                if (
-                    include_bounding_boxes
-                    and bounding_box is not None
-                ):
-                    
+                if item.detection_result is not None:
+                    bounding_box = item.detection_result
+                if include_bounding_boxes and bounding_box is not None:
                     color = (0, 255, 0)
                     label = f"{constants.DETECTION_TARGET} {bounding_box.conf:.2f}"
                     x1 = int(bounding_box.x1)

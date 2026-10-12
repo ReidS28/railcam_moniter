@@ -1,19 +1,18 @@
 from collections import deque
-from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
 from cv2.typing import MatLike
 from termcolor import colored
-from ultralytics.engine.results import Results
+from ultralytics.engine.results import Boxes
 
 
 @dataclass
 class IndexedFrame:
     frame: MatLike
     id: UUID
-    detection_results: list[Results] | None
+    detection_result: Boxes | None
 
 
 def print_time(

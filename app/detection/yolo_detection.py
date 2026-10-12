@@ -43,7 +43,6 @@ def _worker(
         if name.upper() == constants.DETECTION_TARGET
     ]
 
-    # locked_item_id = None
     while True:
         try:
             target_frame_id = id_queue.get(timeout=0.03)
@@ -63,7 +62,7 @@ def _worker(
             id_queue.task_done()
             break
 
-        results = model.track(
+        result = model.track(
             indexed_frame.frame,
             verbose=False,
             conf=constants.YOLO_DETECTION_CONFIDENCE_THRESHOLD,
@@ -72,73 +71,70 @@ def _worker(
             # classes=target_ids,
             persist=True,
             tracker="botsort.yaml",  # tracker="bytetrack.yaml",
-        )
+        )[0]
 
-        indexed_frame.detection_results = results
+        # indexed_frame.detection_result = result
 
-        print_time(f"results length {len(list(indexed_frame.detection_results))}")
+        annotated_frame = result.plot()
+        cv2.imshow("YOLO26 Tracking", annotated_frame)
+        cv2.waitKey(1)
 
-        for result in results:
-            annotated_frame = result.plot()
-            cv2.imshow("YOLO26 Tracking", annotated_frame)
-            cv2.waitKey(1)
+        boxes = result.boxes
 
-            boxes = result.boxes
+        # if boxes is not None:
+        #     # print_time(str(boxes.id))
+        #     print_time(f"num boxes: {(len(boxes))}")
+        # else:
+        #     print_time("0")
 
-            if boxes is None or boxes.id is None:
-                continue
+        currently_detected = False
+        reset_bounding_box_callback()
 
-            currently_detected = False
+        if boxes is not None:  # At least one detection
+            currently_detected = True
 
-            target_boxes = [box for box in boxes if int(box.cls[0]) in target_ids]
+            for box in boxes:
 
-            reset_bounding_box_callback()
-            if target_boxes:
-                best_box = max(target_boxes, key=lambda b: float(b.conf[0]))
-                conf = float(best_box.conf[0])
-
-                currently_detected = True
-
-                # Draw Box
-                x1, y1, x2, y2 = map(int, best_box.xyxy[0])
-                frame_height, frame_width = indexed_frame.frame.shape[:2]
-                label = f"{constants.DETECTION_TARGET} {conf:.2f}"
-
+                conf = float(box.conf[0])
+                x, y, w, h = map(float, box.xywhn[0])
+                detected_item = model.names[int(box.cls[0])].upper()
+                label = f"{detected_item} {conf:.2f}"
                 edit_bounding_box_callback(
                     True,
-                    x1 / frame_width * 100,
-                    y1 / frame_height * 100,
-                    (x2 - x1) / frame_width * 100,
-                    (y2 - y1) / frame_height * 100,
+                    x * 100,
+                    y * 100,
+                    w * 100,
+                    h * 100,
                     label,
                 )
-            else:
-                edit_bounding_box_callback(False, 0, 0, 0, 0, "")
 
-            if currently_detected:
-                detection_frames += 1
-            elif target_detected:
-                detection_frames -= 1
-            else:
-                detection_frames = 0
+        else:
+            edit_bounding_box_callback(False, 0, 0, 0, 0, "")
 
-            detection_frames = max(
-                -constants.YOLO_END_DETECTION_FRAMES,
-                min(constants.YOLO_START_DETECTION_FRAMES, detection_frames),
-            )
+        if currently_detected:
+            detection_frames += 1
+        elif target_detected:
+            detection_frames -= 1
+        else:
+            detection_frames = 0
 
-            if detection_frames >= constants.YOLO_START_DETECTION_FRAMES:
-                if not target_detected:
-                    target_detected = True
-                    event_queue.put({"type": "target_detected_started"})
+        detection_frames = max(
+            -constants.YOLO_END_DETECTION_FRAMES,
+            min(constants.YOLO_START_DETECTION_FRAMES, detection_frames),
+        )
 
-            elif detection_frames <= -constants.YOLO_END_DETECTION_FRAMES:
-                if target_detected:
-                    target_detected = False
-                    event_queue.put({"type": "target_detected_ended"})
+        if detection_frames >= constants.YOLO_START_DETECTION_FRAMES:
+            if not target_detected:
+                target_detected = True
+                event_queue.put({"type": "target_detected_started"})
 
-            elif id_queue.empty() and not target_detected and not currently_detected:
-                event_queue.put({"type": "done_detecting_queue"})
+        elif detection_frames <= -constants.YOLO_END_DETECTION_FRAMES:
+            if target_detected:
+                target_detected = False
+                event_queue.put({"type": "target_detected_ended"})
+
+        elif id_queue.empty() and not target_detected and not currently_detected:
+            event_queue.put({"type": "done_detecting_queue"})
 
         id_queue.task_done()
 
