@@ -96,7 +96,9 @@ def _worker(
             for box in boxes:
 
                 conf = float(box.conf[0])
-                x, y, w, h = map(float, box.xywhn[0])
+                x_center, y_center, w, h = map(float, box.xywhn[0])
+                x = x_center - (w / 2)
+                y = y_center - (h / 2)
                 detected_item = model.names[int(box.cls[0])].upper()
                 label = f"{detected_item} {conf:.2f}"
                 edit_bounding_box_callback(
