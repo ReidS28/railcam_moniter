@@ -70,19 +70,25 @@ def _worker(
             device=0,
             classes=target_ids,
             persist=True,
-            tracker="botsort.yaml",
+            tracker="bytetrack.yaml",#"botsort.yaml", #BoT-Sort be thowin errors
         )[0]
 
-        annotated_frame = result.plot()
-        cv2.imshow("YOLO26 Tracking", annotated_frame)
-        cv2.waitKey(1)
+        indexed_frame.detection_results = result
+
+        # annotated_frame = result.plot()
+        # cv2.imshow("YOLO26 Tracking", annotated_frame)
+        # cv2.waitKey(1)
 
         boxes = result.boxes
 
         currently_detected = False
 
         payload = []
-        if boxes is not None:
+        
+        if boxes is not None and len(boxes) > 0:  # At least one detection
+            currently_detected = True
+
+            # Create payload for update_bounding_boxes_callback
             for box in boxes:
 
                 def extract_val(val):
@@ -120,9 +126,6 @@ def _worker(
                 )
 
         update_bounding_boxes_callback(payload)
-
-        if boxes is not None:  # At least one detection
-            currently_detected = True
 
         if currently_detected:
             detection_frames += 1

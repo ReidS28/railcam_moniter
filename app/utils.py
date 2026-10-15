@@ -7,14 +7,14 @@ import numpy as np
 import torch
 from cv2.typing import MatLike
 from termcolor import colored
-from ultralytics.engine.results import Boxes
+from ultralytics.engine.results import Results
 
 
 @dataclass
 class IndexedFrame:
     frame: MatLike
     id: UUID
-    detection_result: Boxes | None
+    detection_results: Results | None
 
 
 def print_time(
