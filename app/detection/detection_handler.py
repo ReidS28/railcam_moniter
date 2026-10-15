@@ -101,7 +101,7 @@ class DetectionHandler:
         cursor = start_id
         include_cursor = True
 
-        bounding_box = None
+        results = None
         while True:  # Grab frames in chunks every poll_interval
             snapshot = list(self.rolling_storage)
 
@@ -113,30 +113,11 @@ class DetectionHandler:
 
             for item in new_items:
                 if item.detection_results is not None:
-                    bounding_box = item.detection_results
-                if (
-                    include_bounding_boxes
-                    and bounding_box is not None
-                    and bounding_box.target_detected
-                ):
-                    color = (0, 255, 0)
-                    label = f"{constants.DETECTION_TARGET} {bounding_box.conf:.2f}"
-                    x1 = int(bounding_box.x1)
-                    y1 = int(bounding_box.y1)
-                    x2 = int(bounding_box.x2)
-                    y2 = int(bounding_box.y2)
+                    results = item.detection_results
 
-                    cv2.rectangle(item.frame, (x1, y1), (x2, y2), color, 2)
-                    cv2.putText(
-                        item.frame,
-                        label,
-                        (x1, y1 - 10),
-                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=0.6,
-                        color=color,
-                        thickness=2,
-                        lineType=cv2.LINE_AA,
-                    )
+                if include_bounding_boxes and results is not None:
+                    item.frame = results.plot(img=item.frame)
+
                 frames.append(item.frame)
                 cursor = item.id
                 if len(frames) == num_frames:

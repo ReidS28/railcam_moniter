@@ -3,25 +3,18 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+import numpy as np
+import torch
 from cv2.typing import MatLike
 from termcolor import colored
-
-
-@dataclass
-class DetectionResults:
-    target_detected: bool
-    x1: float
-    y1: float
-    x2: float
-    y2: float
-    conf: float
+from ultralytics.engine.results import Results
 
 
 @dataclass
 class IndexedFrame:
     frame: MatLike
     id: UUID
-    detection_results: DetectionResults | None
+    detection_results: Results | None
 
 
 def print_time(
@@ -59,3 +52,18 @@ def get_frame_from_id(
         if frame.id == target_id:
             return frame
     return None
+
+
+def safe_convert(val):
+    if val is None:
+        return []
+    if isinstance(val, torch.Tensor):
+        return val.cpu().tolist()
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if isinstance(val, list):
+        return val
+    # Fallback if it has a tolist method
+    if hasattr(val, "tolist"):
+        return val.tolist()
+    return list(val)

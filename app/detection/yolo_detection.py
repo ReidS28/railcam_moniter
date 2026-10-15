@@ -2,16 +2,15 @@ import multiprocessing
 import queue
 import threading
 from collections import deque
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from queue import Queue
-from typing import cast
 from uuid import UUID
 
 import constants
 import cv2
 from ultralytics import YOLO
-from ultralytics.engine.results import Results
-from utils import DetectionResults, IndexedFrame, get_frame_from_id, print_time
+from ultralytics.utils.plotting import colors
+from utils import IndexedFrame, get_frame_from_id, print_time
 
 MAX_QUEUE_SIZE = 40
 
@@ -32,17 +31,23 @@ def _worker(
     id_queue: queue.Queue[UUID],
     model: YOLO,
     event_queue: multiprocessing.Queue,
-    bounding_box_callback: BoundingBoxCallback,
+    update_bounding_boxes_callback: Callable,
 ):
 
     target_detected = False
     detection_frames = 0
 
+    target_ids = [
+        i
+        for i, name in model.names.items()
+        if name.upper() == constants.DETECTION_TARGET
+    ]
+
     while True:
         try:
-            target_id = id_queue.get(timeout=0.03)
+            target_frame_id = id_queue.get(timeout=0.03)
             indexed_frame: IndexedFrame | None = get_frame_from_id(
-                rolling_storage, target_id
+                rolling_storage, target_frame_id
             )
             if indexed_frame is None:
                 continue
@@ -51,87 +56,97 @@ def _worker(
             cv2.waitKey(1)
             continue
 
-        if indexed_frame is None:
+        if (
+            indexed_frame is None
+        ):  # Quit if None frame is given TODO: Make this id based
             id_queue.task_done()
             break
 
-        results = cast(
-            Iterator[Results],
-            model.predict(
-                indexed_frame.frame,
-                stream=True,
-                verbose=False,
-                conf=constants.YOLO_DETECTION_CONFIDENCE_THRESHOLD,
-                imgsz=640,  # this number seems to work best (It's what it was trained at)
-                device=0,
-            ),
+        result = model.track(
+            indexed_frame.frame,
+            verbose=False,
+            conf=constants.YOLO_DETECTION_CONFIDENCE_THRESHOLD,
+            imgsz=640,  # this number seems to work best (It's what it was trained at)
+            device=0,
+            classes=target_ids,
+            persist=True,
+            tracker="bytetrack.yaml",#"botsort.yaml", #BoT-Sort be thowin errors
+        )[0]
+
+        indexed_frame.detection_results = result
+
+        boxes = result.boxes
+
+        currently_detected = False
+
+        payload = []
+        
+        if boxes is not None and len(boxes) > 0:  # At least one detection
+            currently_detected = True
+
+            # Create payload for update_bounding_boxes_callback
+            for box in boxes:
+
+                def extract_val(val):
+                    if val is None:
+                        return None
+                    if hasattr(val, "cpu"):
+                        val = val.cpu()
+                    if hasattr(val, "tolist"):
+                        arr = val.tolist()
+                    else:
+                        try:
+                            arr = list(val)
+                        except Exception:  # noqa BLE001
+                            arr = [val]
+                    if isinstance(arr, list) and len(arr) > 0:
+                        return arr[0]
+                    return arr
+
+                detected_item = model.names[int(box.cls[0])].upper()
+                cls_id = int(box.cls[0])
+                detected_item = model.names[cls_id].upper()
+                r, g, b = colors(cls_id, bgr=False)
+
+                payload.append(
+                    {
+                        "conf": extract_val(box.conf),
+                        "class_name": detected_item,
+                        "color": f"#{r:02x}{g:02x}{b:02x}",
+                        "id": extract_val(box.id),
+                        # "xywh": extract_val(box.xywh),
+                        "xywhn": extract_val(box.xywhn),
+                        # "xyxy": extract_val(box.xyxy),
+                        # "xyxyn": extract_val(box.xyxyn),
+                    }
+                )
+
+        update_bounding_boxes_callback(payload)
+
+        if currently_detected:
+            detection_frames += 1
+        elif target_detected:
+            detection_frames -= 1
+        else:
+            detection_frames = 0
+
+        detection_frames = max(
+            -constants.YOLO_END_DETECTION_FRAMES,
+            min(constants.YOLO_START_DETECTION_FRAMES, detection_frames),
         )
 
-        for result in results:
-            boxes = result.boxes
+        if detection_frames >= constants.YOLO_START_DETECTION_FRAMES:
+            if not target_detected:
+                target_detected = True
+                event_queue.put({"type": "target_detected_started"})
 
-            if boxes is None:
-                continue
+        elif detection_frames <= -constants.YOLO_END_DETECTION_FRAMES:
+            if target_detected:
+                target_detected = False
+                event_queue.put({"type": "target_detected_ended"})
 
-            currently_detected = False
-
-            target_boxes = [
-                box
-                for box in boxes
-                if model.names[int(box.cls[0])].upper() == constants.DETECTION_TARGET
-            ]
-
-            if target_boxes:
-                best_box = max(target_boxes, key=lambda b: float(b.conf[0]))
-                conf = float(best_box.conf[0])
-
-                currently_detected = True
-
-                # Draw Box
-                x1, y1, x2, y2 = map(int, best_box.xyxy[0])
-                frame_height, frame_width = indexed_frame.frame.shape[:2]
-                label = f"{constants.DETECTION_TARGET} {conf:.2f}"
-
-                indexed_frame.detection_results = DetectionResults(
-                    True, x1, y1, x2, y2, conf
-                )
-
-                bounding_box_callback(
-                    True,
-                    x1 / frame_width * 100,
-                    y1 / frame_height * 100,
-                    (x2 - x1) / frame_width * 100,
-                    (y2 - y1) / frame_height * 100,
-                    label,
-                )
-            else:
-                indexed_frame.detection_results = DetectionResults(False, 0, 0, 0, 0, 0)
-                bounding_box_callback(False, 0, 0, 0, 0, "")
-
-            if currently_detected:
-                detection_frames += 1
-            elif target_detected:
-                detection_frames -= 1
-            else:
-                detection_frames = 0
-
-            detection_frames = max(
-                -constants.YOLO_END_DETECTION_FRAMES,
-                min(constants.YOLO_START_DETECTION_FRAMES, detection_frames),
-            )
-
-            if detection_frames >= constants.YOLO_START_DETECTION_FRAMES:
-                if not target_detected:
-                    target_detected = True
-                    event_queue.put({"type": "target_detected_started"})
-
-            elif detection_frames <= -constants.YOLO_END_DETECTION_FRAMES:
-                if target_detected:
-                    target_detected = False
-                    event_queue.put({"type": "target_detected_ended"})
-
-            elif id_queue.empty() and not target_detected and not currently_detected:
-                event_queue.put({"type": "done_detecting_queue"})
+        elif id_queue.empty() and not target_detected and not currently_detected:
+            event_queue.put({"type": "done_detecting_queue"})
 
         id_queue.task_done()
 
@@ -142,12 +157,12 @@ class YOLODectection:
         event_queue: multiprocessing.Queue,
         rolling_storage: deque[IndexedFrame],
         run_nth_frame: int = 1,
-        bounding_box_callback: BoundingBoxCallback = (lambda *_: None),
+        update_bounding_box_callback: Callable = (lambda *_: None),
     ):
         self.event_queue = event_queue
         self.rolling_storage = rolling_storage
         self.run_nth_frame = run_nth_frame
-        self.bounding_box_callback = bounding_box_callback
+        self.update_bounding_box_callback = update_bounding_box_callback
 
         self._frame_count = 0
         self._id_queue: Queue[UUID] = queue.Queue(maxsize=constants.YOLO_MAX_QUEUE_SIZE)
@@ -160,7 +175,7 @@ class YOLODectection:
                 self._id_queue,
                 self._model,
                 self.event_queue,
-                self.bounding_box_callback,
+                self.update_bounding_box_callback,
             ),
             name="YOLO",
             daemon=True,

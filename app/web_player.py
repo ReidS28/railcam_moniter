@@ -107,26 +107,18 @@ class webPlayer:
 
             await asyncio.sleep(max(0.0, interval - (time.perf_counter() - t0)))
 
-    def edit_bounding_box(
-        self,
-        show: bool | None = False,
-        x: float = 0,
-        y: float = 0,
-        w: float = 0,
-        h: float = 0,
-        text: str = "",
-    ):
+    def update_bounding_boxes(self, payload):
         if self._page_loader is None:
             return
 
         fut = asyncio.run_coroutine_threadsafe(
-            self._page_loader.edit_bounding_box_async(show, x, y, w, h, text),
+            self._page_loader.update_bounding_boxes_async(payload),
             self._loop,
         )
         fut.add_done_callback(
             lambda f: (
                 f.exception()
-                and print_time(f"bounding box edit failed: {f.exception()}", "red")
+                and print_time(f"bounding box reset failed: {f.exception()}", "red")
             )
         )
 
