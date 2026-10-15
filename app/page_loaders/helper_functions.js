@@ -39,7 +39,7 @@ window.newBoundingBox = function () {
 	const textSize = 18;
 	const textPaddingY = 4;
 
-	const color = "00ff00"
+	const color = "#00ff00"
 
 	container = document.getElementById("my-full-page-div");
 	div = document.createElement("div");
@@ -87,7 +87,7 @@ window.editBoundingBox = function (
 	w = 0,
 	h = 0,
 	text = "",
-	color = "00ff00",
+	color = "#00ff00",
 ) {
 	if (!boundingBox) {
 		found = false;

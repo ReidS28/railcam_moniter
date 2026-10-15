@@ -75,10 +75,6 @@ def _worker(
 
         indexed_frame.detection_results = result
 
-        # annotated_frame = result.plot()
-        # cv2.imshow("YOLO26 Tracking", annotated_frame)
-        # cv2.waitKey(1)
-
         boxes = result.boxes
 
         currently_detected = False
