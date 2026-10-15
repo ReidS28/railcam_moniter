@@ -133,6 +133,45 @@ window.editBoundingBox = function (
 	boundingBox.div.firstElementChild.innerText = text;
 };
 
+window.updateBoundingBoxes = function (boxes) {
+	if (!boxes) boxes = [];
+	while (window.boundingBoxes.length < boxes.length) {
+		window.boundingBoxes.push(window.newBoundingBox());
+	}
+
+	let i = 0;
+	while (i < boxes.length) {
+		let box = boxes[i];
+
+		if (box) {
+			let x = box.xywhn ? (box.xywhn[0] - box.xywhn[2] / 2) * 100 : 0;
+			let y = box.xywhn ? (box.xywhn[1] - box.xywhn[3] / 2) * 100 : 0;
+			let w = box.xywhn ? box.xywhn[2] * 100 : 0;
+			let h = box.xywhn ? box.xywhn[3] * 100 : 0;
+
+			let lable = `ID:${box.id ?? "N/A"} ${box.class} ${box.conf.toFixed(2)}`;
+
+			window.editBoundingBox(
+				window.boundingBoxes[i],
+				true,
+				x,
+				y,
+				w,
+				h,
+				lable,
+			);
+		} else {
+			window.editBoundingBox(window.boundingBoxes[i], false);
+		}
+		i++;
+	}
+
+	while (i < window.boundingBoxes.length) {
+		window.editBoundingBox(window.boundingBoxes[i], false);
+		i++
+	}
+};
+
 window.resetBoundingBoxes = function () {
 	for (i in window.boundingBoxes) {
 		window.editBoundingBox(window.boundingBoxes[i], false);

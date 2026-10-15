@@ -108,3 +108,12 @@ class PageLoader:
             return
 
         await self.page.evaluate("window.resetBoundingBoxes();")
+
+    async def update_bounding_boxes_async(self, payload):
+        if self.page is None:
+            return
+
+        await self.page.evaluate(
+            "(data) => { window.updateBoundingBoxes(data); }",
+            payload,
+        )

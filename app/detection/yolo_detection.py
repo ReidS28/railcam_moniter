@@ -30,8 +30,7 @@ def _worker(
     id_queue: queue.Queue[UUID],
     model: YOLO,
     event_queue: multiprocessing.Queue,
-    edit_bounding_box_callback: BoundingBoxCallback,
-    reset_bounding_box_callback: Callable,
+    update_bounding_boxes_callback: Callable,
 ):
 
     target_detected = False
@@ -81,37 +80,42 @@ def _worker(
 
         boxes = result.boxes
 
-        # if boxes is not None:
-        #     # print_time(str(boxes.id))
-        #     print_time(f"num boxes: {(len(boxes))}")
-        # else:
-        #     print_time("0")
-
         currently_detected = False
-        reset_bounding_box_callback()
+
+        payload = []
+        if boxes is not None:
+            for box in boxes:
+        
+                def extract_val(val):
+                    if val is None:
+                        return None
+                    if hasattr(val, "cpu"):
+                        val = val.cpu()
+                    if hasattr(val, "tolist"):
+                        arr = val.tolist()
+                    else:
+                        try:
+                            arr = list(val)
+                        except Exception:  # noqa BLE001
+                            arr = [val]
+                    if isinstance(arr, list) and len(arr) > 0:
+                        return arr[0]
+                    return arr
+        
+                payload.append({
+                    "conf": extract_val(box.conf),
+                    "class": extract_val(box.cls),
+                    "id": extract_val(box.id),
+                    # "xywh": extract_val(box.xywh),
+                    "xywhn": extract_val(box.xywhn),
+                    # "xyxy": extract_val(box.xyxy),
+                    # "xyxyn": extract_val(box.xyxyn),
+                })
+        
+        update_bounding_boxes_callback(payload)
 
         if boxes is not None:  # At least one detection
             currently_detected = True
-
-            for box in boxes:
-
-                conf = float(box.conf[0])
-                x_center, y_center, w, h = map(float, box.xywhn[0])
-                x = x_center - (w / 2)
-                y = y_center - (h / 2)
-                detected_item = model.names[int(box.cls[0])].upper()
-                label = f"{detected_item} {conf:.2f}"
-                edit_bounding_box_callback(
-                    True,
-                    x * 100,
-                    y * 100,
-                    w * 100,
-                    h * 100,
-                    label,
-                )
-
-        else:
-            edit_bounding_box_callback(False, 0, 0, 0, 0, "")
 
         if currently_detected:
             detection_frames += 1
@@ -147,14 +151,14 @@ class YOLODectection:
         event_queue: multiprocessing.Queue,
         rolling_storage: deque[IndexedFrame],
         run_nth_frame: int = 1,
-        edit_bounding_box_callback: BoundingBoxCallback = (lambda *_: None),
-        reset_bounding_box_callback: Callable = (lambda *_: None),
+        update_bounding_box_callback: Callable = (lambda *_: None),
     ):
         self.event_queue = event_queue
         self.rolling_storage = rolling_storage
         self.run_nth_frame = run_nth_frame
-        self.edit_bounding_box_callback = edit_bounding_box_callback
-        self.reset_bounding_box_callback = reset_bounding_box_callback
+        self.update_bounding_box_callback = update_bounding_box_callback
+        # self.edit_bounding_box_callback = edit_bounding_box_callback
+        # self.reset_bounding_box_callback = reset_bounding_box_callback
 
         self._frame_count = 0
         self._id_queue: Queue[UUID] = queue.Queue(maxsize=constants.YOLO_MAX_QUEUE_SIZE)
@@ -167,8 +171,7 @@ class YOLODectection:
                 self._id_queue,
                 self._model,
                 self.event_queue,
-                self.edit_bounding_box_callback,
-                self.reset_bounding_box_callback,
+                self.update_bounding_box_callback,
             ),
             name="YOLO",
             daemon=True,

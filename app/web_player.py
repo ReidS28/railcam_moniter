@@ -145,6 +145,21 @@ class webPlayer:
             )
         )
 
+    def update_bounding_boxes(self, payload):
+        if self._page_loader is None:
+            return
+
+        fut = asyncio.run_coroutine_threadsafe(
+            self._page_loader.update_bounding_boxes_async(payload),
+            self._loop,
+        )
+        fut.add_done_callback(
+            lambda f: (
+                f.exception()
+                and print_time(f"bounding box reset failed: {f.exception()}", "red")
+            )
+        )
+
     def end(self):
         async def _shutdown():
             self._capture_stop = True

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
+import numpy as np
+import torch
 from cv2.typing import MatLike
 from termcolor import colored
 from ultralytics.engine.results import Boxes
@@ -50,3 +52,18 @@ def get_frame_from_id(
         if frame.id == target_id:
             return frame
     return None
+
+
+def safe_convert(val):
+    if val is None:
+        return []
+    if isinstance(val, torch.Tensor):
+        return val.cpu().tolist()
+    if isinstance(val, np.ndarray):
+        return val.tolist()
+    if isinstance(val, list):
+        return val
+    # Fallback if it has a tolist method
+    if hasattr(val, "tolist"):
+        return val.tolist()
+    return list(val)

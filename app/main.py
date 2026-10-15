@@ -40,10 +40,13 @@ def main():
         event_queue,
         rolling_storage,
         run_nth_frame=4,
-        edit_bounding_box_callback=lambda *args, **kwargs: player.edit_bounding_box(
-            *args, **kwargs
+        update_bounding_box_callback=lambda *args, **kwargs: (
+            player.update_bounding_boxes(*args, **kwargs)
         ),
-        reset_bounding_box_callback=lambda: player.reset_bounding_box(),
+        # edit_bounding_box_callback=lambda *args, **kwargs: player.edit_bounding_box(
+        #     *args, **kwargs
+        # ),
+        # reset_bounding_box_callback=lambda: player.reset_bounding_box(),
     )
 
     def handle_event(event: dict) -> None:
