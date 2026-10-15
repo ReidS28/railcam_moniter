@@ -149,7 +149,7 @@ window.updateBoundingBoxes = function (boxes) {
 			let w = box.xywhn ? box.xywhn[2] * 100 : 0;
 			let h = box.xywhn ? box.xywhn[3] * 100 : 0;
 
-			let lable = `ID:${box.id ?? "N/A"} ${box.class} ${box.conf.toFixed(2)}`;
+			let lable = `ID:${box.id ?? "N/A"} ${box.class_name} ${box.conf.toFixed(2)}`;
 
 			window.editBoundingBox(
 				window.boundingBoxes[i],

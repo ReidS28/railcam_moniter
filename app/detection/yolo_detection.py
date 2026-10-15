@@ -85,7 +85,7 @@ def _worker(
         payload = []
         if boxes is not None:
             for box in boxes:
-        
+
                 def extract_val(val):
                     if val is None:
                         return None
@@ -101,17 +101,22 @@ def _worker(
                     if isinstance(arr, list) and len(arr) > 0:
                         return arr[0]
                     return arr
-        
-                payload.append({
-                    "conf": extract_val(box.conf),
-                    "class": extract_val(box.cls),
-                    "id": extract_val(box.id),
-                    # "xywh": extract_val(box.xywh),
-                    "xywhn": extract_val(box.xywhn),
-                    # "xyxy": extract_val(box.xyxy),
-                    # "xyxyn": extract_val(box.xyxyn),
-                })
-        
+
+                detected_item = model.names[int(box.cls[0])].upper()
+
+                payload.append(
+                    {
+                        "conf": extract_val(box.conf),
+                        "class_name": detected_item,
+                        "color": None,
+                        "id": extract_val(box.id),
+                        # "xywh": extract_val(box.xywh),
+                        "xywhn": extract_val(box.xywhn),
+                        # "xyxy": extract_val(box.xyxy),
+                        # "xyxyn": extract_val(box.xyxyn),
+                    }
+                )
+
         update_bounding_boxes_callback(payload)
 
         if boxes is not None:  # At least one detection
