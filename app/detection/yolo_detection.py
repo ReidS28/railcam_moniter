@@ -9,6 +9,7 @@ from uuid import UUID
 import constants
 import cv2
 from ultralytics import YOLO
+from ultralytics.utils.plotting import colors
 from utils import IndexedFrame, get_frame_from_id, print_time
 
 MAX_QUEUE_SIZE = 40
@@ -67,12 +68,10 @@ def _worker(
             conf=constants.YOLO_DETECTION_CONFIDENCE_THRESHOLD,
             imgsz=640,  # this number seems to work best (It's what it was trained at)
             device=0,
-            # classes=target_ids,
+            classes=target_ids,
             persist=True,
-            tracker="botsort.yaml",  # tracker="bytetrack.yaml",
+            tracker="botsort.yaml",
         )[0]
-
-        # indexed_frame.detection_result = result
 
         annotated_frame = result.plot()
         cv2.imshow("YOLO26 Tracking", annotated_frame)
@@ -103,12 +102,15 @@ def _worker(
                     return arr
 
                 detected_item = model.names[int(box.cls[0])].upper()
+                cls_id = int(box.cls[0])
+                detected_item = model.names[cls_id].upper()
+                r, g, b = colors(cls_id, bgr=False)
 
                 payload.append(
                     {
                         "conf": extract_val(box.conf),
                         "class_name": detected_item,
-                        "color": None,
+                        "color": f"#{r:02x}{g:02x}{b:02x}",
                         "id": extract_val(box.id),
                         # "xywh": extract_val(box.xywh),
                         "xywhn": extract_val(box.xywhn),
@@ -162,8 +164,6 @@ class YOLODectection:
         self.rolling_storage = rolling_storage
         self.run_nth_frame = run_nth_frame
         self.update_bounding_box_callback = update_bounding_box_callback
-        # self.edit_bounding_box_callback = edit_bounding_box_callback
-        # self.reset_bounding_box_callback = reset_bounding_box_callback
 
         self._frame_count = 0
         self._id_queue: Queue[UUID] = queue.Queue(maxsize=constants.YOLO_MAX_QUEUE_SIZE)

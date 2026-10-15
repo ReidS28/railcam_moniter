@@ -1,19 +1,6 @@
 window.setUpBoundingBoxes = function () {
 	window.createBoundingBoxContiner();
 
-	window.boundingBoxColors = [
-		"#00ff00",
-		"#ff444f",
-		"#0004ff",
-		"#00eeff",
-		"#ffaa00",
-		"#00ff8c",
-		"#fff700",
-		"#aa00ff",
-		"#ff0000",
-	];
-	window.boundingBoxColorIndex = 0;
-
 	window.boundingBoxes = [];
 };
 
@@ -52,9 +39,7 @@ window.newBoundingBox = function () {
 	const textSize = 18;
 	const textPaddingY = 4;
 
-	const color = window.boundingBoxColors[window.boundingBoxColorIndex];
-	window.boundingBoxColorIndex =
-		(window.boundingBoxColorIndex + 1) % window.boundingBoxColors.length;
+	const color = "00ff00"
 
 	container = document.getElementById("my-full-page-div");
 	div = document.createElement("div");
@@ -62,7 +47,6 @@ window.newBoundingBox = function () {
 
 	div.className = "bounding-box";
 	div.style.position = "fixed";
-	div.style.border = `3px solid ${color}`;
 	div.style.zIndex = "2147483647"; // Max z-index
 	div.style.pointerEvents = "none";
 
@@ -73,9 +57,8 @@ window.newBoundingBox = function () {
 	text.style.position = "absolute";
 	text.style.top = `-${textSize + 2 * textPaddingY}px`;
 	text.style.left = "0px";
-	text.style.color = color;
 	text.style.padding = `${textPaddingY}px 0px`;
-	text.style.backgroundColor = "rgba(0, 0, 0, 0.2)";
+	text.style.backgroundColor = "rgba(0, 0, 0, 0.3)";
 	text.style.fontSize = `${textSize}px`;
 	text.style.fontWeight = "bold";
 	text.style.fontFamily = "Courier New, monospace";
@@ -86,7 +69,9 @@ window.newBoundingBox = function () {
 	div.style.left = "0vh";
 	div.style.width = "0vw";
 	div.style.height = "0vh";
-	text.innerText = "HELLO BOX";
+	div.style.border = `3px solid ${color}`;
+	text.innerText = "";
+	text.style.color = color;
 
 	return {
 		div: div,
@@ -102,6 +87,7 @@ window.editBoundingBox = function (
 	w = 0,
 	h = 0,
 	text = "",
+	color = "00ff00",
 ) {
 	if (!boundingBox) {
 		found = false;
@@ -131,6 +117,11 @@ window.editBoundingBox = function (
 	boundingBox.div.style.width = `${w}vw`;
 	boundingBox.div.style.height = `${h}vh`;
 	boundingBox.div.firstElementChild.innerText = text;
+
+	if (color) {
+		boundingBox.div.style.borderColor = color;
+		boundingBox.div.firstElementChild.style.color = color;
+	}
 };
 
 window.updateBoundingBoxes = function (boxes) {
@@ -148,6 +139,7 @@ window.updateBoundingBoxes = function (boxes) {
 			let y = box.xywhn ? (box.xywhn[1] - box.xywhn[3] / 2) * 100 : 0;
 			let w = box.xywhn ? box.xywhn[2] * 100 : 0;
 			let h = box.xywhn ? box.xywhn[3] * 100 : 0;
+			let color = box.color;
 
 			let lable = `ID:${box.id ?? "N/A"} ${box.class_name} ${box.conf.toFixed(2)}`;
 
@@ -159,6 +151,7 @@ window.updateBoundingBoxes = function (boxes) {
 				w,
 				h,
 				lable,
+				color,
 			);
 		} else {
 			window.editBoundingBox(window.boundingBoxes[i], false);
@@ -168,13 +161,7 @@ window.updateBoundingBoxes = function (boxes) {
 
 	while (i < window.boundingBoxes.length) {
 		window.editBoundingBox(window.boundingBoxes[i], false);
-		i++
-	}
-};
-
-window.resetBoundingBoxes = function () {
-	for (i in window.boundingBoxes) {
-		window.editBoundingBox(window.boundingBoxes[i], false);
+		i++;
 	}
 };
 
