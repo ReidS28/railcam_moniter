@@ -8,6 +8,7 @@ from uuid import UUID
 
 import constants
 import cv2
+import numpy as np
 from ultralytics import YOLO
 from ultralytics.utils.plotting import colors
 from utils import IndexedFrame, get_frame_from_id, print_time
@@ -46,41 +47,41 @@ def _worker(
     while True:
         try:
             target_frame_id = id_queue.get(timeout=0.03)
-            indexed_frame: IndexedFrame | None = get_frame_from_id(
+            item: IndexedFrame | None = get_frame_from_id(
                 rolling_storage, target_frame_id
             )
-            if indexed_frame is None:
+            if item is None:
                 continue
 
         except queue.Empty:
             cv2.waitKey(1)
             continue
 
-        if (
-            indexed_frame is None
-        ):  # Quit if None frame is given TODO: Make this id based
+        if item is None:  # Quit if None frame is given TODO: Make this id based
             id_queue.task_done()
             break
 
         result = model.track(
-            indexed_frame.frame,
+            item.frame,
             verbose=False,
             conf=constants.YOLO_DETECTION_CONFIDENCE_THRESHOLD,
             imgsz=640,  # this number seems to work best (It's what it was trained at)
             device=0,
             classes=target_ids,
             persist=True,
-            tracker="bytetrack.yaml",#"botsort.yaml", #BoT-Sort be thowin errors
+            tracker="bytetrack.yaml",  # "botsort.yaml", #BoT-Sort be thowin errors
         )[0]
 
-        indexed_frame.detection_results = result
+        item.detection_results = result
+
+        item.frame = item.detection_results.plot()  # TODO: Remove after testing
 
         boxes = result.boxes
 
         currently_detected = False
 
         payload = []
-        
+
         if boxes is not None and len(boxes) > 0:  # At least one detection
             currently_detected = True
 
@@ -121,6 +122,8 @@ def _worker(
                     }
                 )
 
+        _calculate_movement_direction(item)
+
         update_bounding_boxes_callback(payload)
 
         if currently_detected:
@@ -149,6 +152,47 @@ def _worker(
             event_queue.put({"type": "done_detecting_queue"})
 
         id_queue.task_done()
+
+
+def _calculate_movement_direction(item: IndexedFrame):
+
+    gray = cv2.cvtColor(item.frame, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+
+    blank = np.zeros((h, w), dtype=np.uint8)
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+
+    if item.detection_results is not None and item.detection_results.boxes is not None:
+        for box in item.detection_results.boxes:
+            coords = (
+                box.xyxy[0].cpu().numpy()
+                if hasattr(box.xyxy[0], "cpu")
+                else box.xyxy[0]
+            )
+            x1, y1, x2, y2 = map(int, coords[:4])
+
+            cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
+
+    corners = cv2.goodFeaturesToTrack(
+        gray,
+        maxCorners=constants.DIRECTION_TRACKING_POINTS,
+        qualityLevel=0.01,
+        minDistance=10,
+        mask=mask,
+    )
+
+    if corners is not None:
+        corners = corners.astype(int)
+        for i in corners:
+            x, y = i.ravel()
+            cv2.circle(item.frame, (x, y), 3, (0, 255, 0), -1)
+            cv2.circle(blank, (x, y), 3, 255, -1)
+
+    # cv2.imshow("Shi-Tomasi", item.frame)
+    cv2.imshow("Shi-Tomasi-frameless", blank)
+    # cv2.imshow("mask", mask)
+    cv2.waitKey(1)
 
 
 class YOLODectection:
