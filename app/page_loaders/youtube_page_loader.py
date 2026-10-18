@@ -2,7 +2,6 @@ import asyncio
 
 from page_loaders.page_loader import PageLoader
 from playwright.async_api import BrowserContext
-from utils import print_time
 
 PLAYER = "#movie_player"
 FULLSCREEN_BTN = "#movie_player .ytp-fullscreen-button"

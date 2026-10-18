@@ -51,10 +51,10 @@ class MovementDetection:
             corners = corners.astype(int)
             for i in corners:
                 x, y = i.ravel()
-                cv2.circle(frame, (x, y), 3, (0, 255, 0), -1)
+                cv2.circle(item.frame, (x, y), 3, (0, 255, 0), -1)
                 cv2.circle(blank, (x, y), 3, 255, -1)
 
-        cv2.imshow("frame", frame)
+        cv2.imshow("frame", item.frame)
         # cv2.waitKey(1)
 
         return 0
