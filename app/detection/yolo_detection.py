@@ -8,8 +8,6 @@ from uuid import UUID
 
 import constants
 import cv2
-import numpy as np
-from config import config
 from detection.movement_detection import MovementDetection
 from ultralytics import YOLO
 from ultralytics.utils.plotting import colors
@@ -156,6 +154,7 @@ def _worker(
             event_queue.put({"type": "done_detecting_queue"})
 
         id_queue.task_done()
+
 
 class YOLODectection:
     def __init__(

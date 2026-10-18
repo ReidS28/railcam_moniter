@@ -3,7 +3,6 @@ from playwright.async_api import BrowserContext
 
 PLAYER = "#movie_player"
 FULLSCREEN_BTN = "#movie_player .ytp-fullscreen-button"
-CHAT_TOGGLE = "ytd-live-chat-frame #show-hide-button button"
 
 
 class YoutubePageLoader(PageLoader):
@@ -27,10 +26,17 @@ class YoutubePageLoader(PageLoader):
         if self.page is None:
             return
 
-        close_button = self.page.frame_locator("iframe#chatframe").locator(
-            "#close-button button"
-        )
-        await close_button.click()
+        chat_iframe = self.page.locator("iframe#chatframe")
+
+        if await chat_iframe.count() > 0:
+            try:
+                close_chat_button = chat_iframe.locator("#close-button button")
+                if await close_chat_button.is_visible(timeout=3000):
+                    await close_chat_button.click()
+            except Exception:  # noqa S100
+                pass
+        else:
+            print("Regular video detected (no chat found). Skipping close_chat.")
 
     async def enter_fullscreen(self) -> None:
         if self.page is None:
