@@ -1,8 +1,12 @@
+import asyncio
+
 from page_loaders.page_loader import PageLoader
 from playwright.async_api import BrowserContext
+from utils import print_time
 
 PLAYER = "#movie_player"
 FULLSCREEN_BTN = "#movie_player .ytp-fullscreen-button"
+CHAT_TOGGLE = "ytd-live-chat-frame #show-hide-button button"
 
 
 class YoutubePageLoader(PageLoader):
@@ -19,24 +23,34 @@ class YoutubePageLoader(PageLoader):
             return
 
         await self.page.wait_for_selector(PLAYER, state="visible")
-        await self.close_chat()
+        if await self.check_for_live():
+            await self.close_chat()
+        else:
+            await asyncio.sleep(1)
         await self.enter_fullscreen()
+
+    async def check_for_live(self) -> bool:
+        if self.page is None:
+            return False
+
+        try:
+            player_locator = self.page.locator(PLAYER)
+            await player_locator.hover()
+
+            await asyncio.sleep(1)
+            live_badge = self.page.locator("button.ytp-live-badge")
+            return await live_badge.is_visible(timeout=2000)
+        except Exception:  # noqa BLE001
+            return False
 
     async def close_chat(self) -> None:
         if self.page is None:
             return
 
-        chat_iframe = self.page.locator("iframe#chatframe")
-
-        if await chat_iframe.count() > 0:
-            try:
-                close_chat_button = chat_iframe.locator("#close-button button")
-                if await close_chat_button.is_visible(timeout=3000):
-                    await close_chat_button.click()
-            except Exception:  # noqa S100
-                pass
-        else:
-            print("Regular video detected (no chat found). Skipping close_chat.")
+        close_button = self.page.frame_locator("iframe#chatframe").locator(
+            "#close-button button"
+        )
+        await close_button.click()
 
     async def enter_fullscreen(self) -> None:
         if self.page is None:

@@ -76,7 +76,7 @@ def _worker(
 
         item.detection_results = result
 
-        # item.frame = item.detection_results.plot()  # TODO: Remove after testing
+        item.frame = item.detection_results.plot()  # TODO: Remove after testing
 
         boxes = result.boxes
 
