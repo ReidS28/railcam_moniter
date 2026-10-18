@@ -10,6 +10,7 @@ import constants
 import cv2
 import numpy as np
 from config import config
+from detection.movement_detection import MovementDetection
 from ultralytics import YOLO
 from ultralytics.utils.plotting import colors
 from utils import IndexedFrame, get_frame_from_id, print_time
@@ -44,6 +45,8 @@ def _worker(
         for i, name in model.names.items()
         if name.upper() == constants.DETECTION_TARGET
     ]
+
+    movements_detection = MovementDetection()
 
     while True:
         try:
@@ -86,7 +89,6 @@ def _worker(
         if boxes is not None and len(boxes) > 0:  # At least one detection
             currently_detected = True
 
-            # Create payload for update_bounding_boxes_callback
             for box in boxes:
 
                 def extract_val(val):
@@ -123,7 +125,8 @@ def _worker(
                     }
                 )
 
-        _calculate_movement_direction(item)
+        dx = movements_detection.get_movement(item)
+        print_time(f"dx: {dx}")
 
         update_bounding_boxes_callback(payload)
 
@@ -153,48 +156,6 @@ def _worker(
             event_queue.put({"type": "done_detecting_queue"})
 
         id_queue.task_done()
-
-
-def _calculate_movement_direction(item: IndexedFrame):
-
-    gray = cv2.cvtColor(item.frame, cv2.COLOR_BGR2GRAY)
-    h, w = gray.shape
-
-    blank = np.zeros((h, w), dtype=np.uint8)
-
-    mask = np.zeros((h, w), dtype=np.uint8)
-
-    if item.detection_results is not None and item.detection_results.boxes is not None:
-        for box in item.detection_results.boxes:
-            coords = (
-                box.xyxy[0].cpu().numpy()
-                if hasattr(box.xyxy[0], "cpu")
-                else box.xyxy[0]
-            )
-            x1, y1, x2, y2 = map(int, coords[:4])
-            cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
-            box.id
-
-    corners = cv2.goodFeaturesToTrack(
-        gray,
-        maxCorners=constants.DIRECTION_TRACKING_POINTS,
-        qualityLevel=0.01,
-        minDistance=10,
-        mask=mask,
-    )
-
-    if corners is not None and config['dev'].getboolean('plot_corner_points'):
-        corners = corners.astype(int)
-        for i in corners:
-            x, y = i.ravel()
-            cv2.circle(item.frame, (x, y), 3, (0, 255, 0), -1)
-            cv2.circle(blank, (x, y), 3, 255, -1)
-
-    # cv2.imshow("Shi-Tomasi", item.frame)
-    cv2.imshow("Shi-Tomasi-frameless", blank)
-    # cv2.imshow("mask", mask)
-    cv2.waitKey(1)
-
 
 class YOLODectection:
     def __init__(
