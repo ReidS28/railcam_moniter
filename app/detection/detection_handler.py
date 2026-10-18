@@ -45,7 +45,7 @@ class DetectionHandler:
         self,
         start_id: UUID | None = None,
         num_frames: int = constants.OUTPUT_VIDEO_FRAMES,
-        include_bounding_boxes: bool = True,
+        include_bounding_boxes: bool = config['general'].getboolean('include_bounding_boxes_in_output', fallback=False),
     ):
         # Use earliest frame id if start_id is none
         if start_id is None:

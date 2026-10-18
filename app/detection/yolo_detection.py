@@ -9,6 +9,7 @@ from uuid import UUID
 import constants
 import cv2
 import numpy as np
+from config import config
 from ultralytics import YOLO
 from ultralytics.utils.plotting import colors
 from utils import IndexedFrame, get_frame_from_id, print_time
@@ -74,7 +75,7 @@ def _worker(
 
         item.detection_results = result
 
-        item.frame = item.detection_results.plot()  # TODO: Remove after testing
+        # item.frame = item.detection_results.plot()  # TODO: Remove after testing
 
         boxes = result.boxes
 
@@ -171,8 +172,8 @@ def _calculate_movement_direction(item: IndexedFrame):
                 else box.xyxy[0]
             )
             x1, y1, x2, y2 = map(int, coords[:4])
-
             cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
+            box.id
 
     corners = cv2.goodFeaturesToTrack(
         gray,
@@ -182,7 +183,7 @@ def _calculate_movement_direction(item: IndexedFrame):
         mask=mask,
     )
 
-    if corners is not None:
+    if corners is not None and config['dev'].getboolean('plot_corner_points'):
         corners = corners.astype(int)
         for i in corners:
             x, y = i.ravel()
