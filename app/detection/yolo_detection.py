@@ -43,48 +43,49 @@ def _worker(
         if name.upper() == constants.DETECTION_TARGET
     ]
 
+    # movements_detection = MovementDetection()
+
     while True:
         try:
             target_frame_id = id_queue.get(timeout=0.03)
-            indexed_frame: IndexedFrame | None = get_frame_from_id(
+            item: IndexedFrame | None = get_frame_from_id(
                 rolling_storage, target_frame_id
             )
-            if indexed_frame is None:
+            if item is None:
                 continue
 
         except queue.Empty:
             cv2.waitKey(1)
             continue
 
-        if (
-            indexed_frame is None
-        ):  # Quit if None frame is given TODO: Make this id based
+        if item is None:  # Quit if None frame is given TODO: Make this id based
             id_queue.task_done()
             break
 
         result = model.track(
-            indexed_frame.frame,
+            item.frame,
             verbose=False,
             conf=constants.YOLO_DETECTION_CONFIDENCE_THRESHOLD,
             imgsz=640,  # this number seems to work best (It's what it was trained at)
             device=0,
             classes=target_ids,
             persist=True,
-            tracker="bytetrack.yaml",#"botsort.yaml", #BoT-Sort be thowin errors
+            tracker="bytetrack.yaml",  # "botsort.yaml", #BoT-Sort be thowin errors
         )[0]
 
-        indexed_frame.detection_results = result
+        item.detection_results = result
+
+        item.frame = item.detection_results.plot()  # TODO: Remove after testing
 
         boxes = result.boxes
 
         currently_detected = False
 
         payload = []
-        
+
         if boxes is not None and len(boxes) > 0:  # At least one detection
             currently_detected = True
 
-            # Create payload for update_bounding_boxes_callback
             for box in boxes:
 
                 def extract_val(val):
@@ -120,6 +121,9 @@ def _worker(
                         # "xyxyn": extract_val(box.xyxyn),
                     }
                 )
+
+        # dx = movements_detection.get_movement(item) # this takes too much time so just skip for now, try to get induvidual car detection working first
+        # print_time(f"dx: {dx}")
 
         update_bounding_boxes_callback(payload)
 

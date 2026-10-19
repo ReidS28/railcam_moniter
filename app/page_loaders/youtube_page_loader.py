@@ -1,3 +1,5 @@
+import asyncio
+
 from page_loaders.page_loader import PageLoader
 from playwright.async_api import BrowserContext
 
@@ -20,8 +22,25 @@ class YoutubePageLoader(PageLoader):
             return
 
         await self.page.wait_for_selector(PLAYER, state="visible")
-        await self.close_chat()
+        if await self.check_for_live():
+            await self.close_chat()
+        else:
+            await asyncio.sleep(1)
         await self.enter_fullscreen()
+
+    async def check_for_live(self) -> bool:
+        if self.page is None:
+            return False
+
+        try:
+            player_locator = self.page.locator(PLAYER)
+            await player_locator.hover()
+
+            await asyncio.sleep(1)
+            live_badge = self.page.locator("button.ytp-live-badge")
+            return await live_badge.is_visible(timeout=2000)
+        except Exception:  # noqa BLE001
+            return False
 
     async def close_chat(self) -> None:
         if self.page is None:

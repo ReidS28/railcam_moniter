@@ -4,7 +4,7 @@ import uuid
 from collections import deque
 
 import constants
-from config import config
+from config import profile
 from cv2.typing import MatLike
 from detection.detection_handler import DetectionHandler
 from detection.yolo_detection import YOLODectection
@@ -32,9 +32,7 @@ def main():
         if yolo_detection:
             yolo_detection.add_frame_id(id)
 
-    player = webPlayer(
-        config["general"]["url"], frame_callback=on_frame, print_console_log=False
-    )
+    player = webPlayer(profile["url"], frame_callback=on_frame, print_console_log=False)
 
     yolo_detection = YOLODectection(
         event_queue,

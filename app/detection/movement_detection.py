@@ -1,130 +1,128 @@
-# -----------------------------
-#   THIS CLASS IS NOT USED!!!
-# -----------------------------
-
-import multiprocessing
-
 import cv2
+import numpy as np
+from config import config
 from cv2.typing import MatLike
-from utils import print_time
+from utils import IndexedFrame, print_time
 
-# Following this guide
-# https://hackmd.io/@lKuOpplzSUWLhLim2Z7ZJw/BkGj66aW3
+SCALE = 0.5
+MIN_MOVEMENT = 1  # px/frame
+STATIC_THRESH = 0.3  # px/frame
+MIN_MOVING_PX = 200  # px
+MIN_GRADIENT = 20
 
-MOG2_HISTORY = 300
-
-MOG2_VAR_THRESHOLD = 10
-DOWNSCALE_FACTOR = 0.5
-BLUR_KERNEL_SIZE = 5
-MORPH_KERNEL_SIZE = 5
-MIN_CONTOUR_AREA = 164
-
-PRE_ROLL_FRAMES = 60
-
-
-def _worker(
-    frame_queue: multiprocessing.JoinableQueue[MatLike | None],
-    event_queue: multiprocessing.Queue,
-    run_nth_frame: int,
-):
-
-    frame_count = -1
-
-    # cv2.namedWindow("Movement", cv2.WINDOW_NORMAL)
-
-    fgbg = cv2.createBackgroundSubtractorMOG2(
-        history=MOG2_HISTORY,
-        varThreshold=MOG2_VAR_THRESHOLD,
-        detectShadows=True,
-    )
-    morph_kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE, (MORPH_KERNEL_SIZE, MORPH_KERNEL_SIZE)
-    )
-
-    while True:
-        frame = frame_queue.get()
-
-        if frame is None:
-            frame_queue.task_done()
-            break
-
-        frame_count += 1
-        if frame_count >= run_nth_frame:
-            frame_count = 0
-
-        if frame_count != 0:
-            continue
-
-        small = cv2.resize(
-            frame,
-            None,
-            fx=DOWNSCALE_FACTOR,
-            fy=DOWNSCALE_FACTOR,
-            interpolation=cv2.INTER_LINEAR,
-        )
-        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE), 0)
-
-        fgmask = fgbg.apply(gray)
-
-        _, th = cv2.threshold(fgmask, 200, 255, cv2.THRESH_BINARY)
-
-        th = cv2.morphologyEx(th, cv2.MORPH_OPEN, morph_kernel)
-        th = cv2.morphologyEx(th, cv2.MORPH_CLOSE, morph_kernel)
-
-        contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        # Boxes
-        movement = False
-        scale = 1 / DOWNSCALE_FACTOR
-        scaled_area = MIN_CONTOUR_AREA / (scale**2)
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if area > scaled_area:
-                movement = True
-                x, y, w, h = cv2.boundingRect(contour)
-                cv2.rectangle(
-                    frame,
-                    (int(x * scale), int(y * scale)),
-                    (int((x + w) * scale), int((y + h) * scale)),
-                    (0, 255, 0),
-                    2,
-                )
-
-        if movement:
-            event_queue.put({"type": "movement"})
-
-        # cv2.imshow("Movement", frame)
-        # cv2.waitKey(1)
-
-        frame_queue.task_done()
+FARNEBACK = {
+    "pyr_scale": 0.5,
+    "levels": 3,
+    "winsize": 21,
+    "iterations": 3,
+    "poly_n": 5,
+    "poly_sigma": 1.2,
+    "flags": 0,
+}
 
 
 class MovementDetection:
-    def __init__(self, event_queue: multiprocessing.Queue, run_nth_frame=1) -> None:
+    def __init__(self) -> None:
+        self._latest_box = None
+        self.old_frame: MatLike | None = None
+        self._debug_mask: np.ndarray | None = None
 
-        self._frame_count = 0
-
-        self._background = None
-
-        self._frame_queue: multiprocessing.JoinableQueue[MatLike | None] = (
-            multiprocessing.JoinableQueue(maxsize=10)
+    def get_movement(self, item: IndexedFrame) -> float:
+        frame = cv2.cvtColor(item.frame, cv2.COLOR_BGR2GRAY)
+        frame = cv2.resize(
+            frame, None, fx=SCALE, fy=SCALE, interpolation=cv2.INTER_AREA
         )
 
-        self.worker = multiprocessing.Process(
-            target=_worker,
-            args=(self._frame_queue, event_queue, run_nth_frame),
-            daemon=True,
-        )
-        self.worker.start()
+        box_mask = self._build_mask(item, frame.shape)
+        movement = self._track(frame, box_mask)
 
-    def add_frame(self, frame: MatLike):
-        if self._frame_queue.full():
+        self.old_frame = frame
+
+        if config["dev"].getboolean("show_movement_details"):
+            self._draw_debug(item.frame)
+        cv2.imshow("frame", item.frame)
+
+        if movement is None:
+            return 0
+
+        dx, _dy = movement
+        if abs(dx) < MIN_MOVEMENT:
+            return 0
+        return dx
+
+    def _build_mask(self, item: IndexedFrame, shape: tuple[int, int]) -> np.ndarray:
+        h, w = shape
+        mask = np.zeros((h, w), dtype=np.uint8)
+        results = item.detection_results
+        if results is None or results.boxes is None:
+            return mask
+
+        for box in results.boxes:
+            coords = (
+                box.xyxy[0].cpu().numpy()
+                if hasattr(box.xyxy[0], "cpu")
+                else box.xyxy[0]
+            )
+            x1, y1, x2, y2 = (int(v * SCALE) for v in coords[:4])
+            cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
+        return mask
+
+    def _track(
+        self, frame: np.ndarray, box_mask: np.ndarray
+    ) -> tuple[float, float] | None:
+        self._debug_mask = None
+        if self.old_frame is None:
+            return None
+
+        if self.old_frame.shape != frame.shape:
             print_time(
-                f"Frame added: {self._frame_queue.qsize()}", (255, 128, 0)
-            )  # orange
-        self._frame_queue.put(frame)
+                f"self.old_frame.shape: {self.old_frame.shape}, frame.shape: {frame.shape}"
+            )
+            return None
 
-    def shutdown(self):
-        self._frame_queue.join()
-        self._frame_queue.put(None)
+        flow = cv2.calcOpticalFlowFarneback(
+            self.old_frame,
+            frame,
+            None,  # type: ignore
+            **FARNEBACK,
+        )
+
+        gx = cv2.Sobel(frame, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(frame, cv2.CV_32F, 0, 1, ksize=3)
+        textured = np.hypot(gx, gy) > MIN_GRADIENT
+        valid = (box_mask > 0) & textured
+
+        if np.count_nonzero(valid) < MIN_MOVING_PX:
+            return None
+
+        mag = np.linalg.norm(flow, axis=2)
+        moving = valid & (mag > STATIC_THRESH)
+
+        if np.count_nonzero(moving) < MIN_MOVING_PX:
+            return 0.0, 0.0
+
+        pos = moving & (flow[..., 0] > 0)
+        neg = moving & (flow[..., 0] < 0)
+        moving = pos if np.count_nonzero(pos) >= np.count_nonzero(neg) else neg
+
+        if np.count_nonzero(moving) < MIN_MOVING_PX:
+            return 0.0, 0.0
+
+        self._debug_mask = moving
+
+        vecs = flow[moving]  # (N, 2)
+        dx, dy = np.median(vecs, axis=0)
+        return float(dx / SCALE), float(dy / SCALE)
+
+    def _draw_debug(self, frame: np.ndarray) -> None:
+        """Tint the pixels that contributed to the movement estimate."""
+        if self._debug_mask is None:
+            return
+        full = cv2.resize(
+            self._debug_mask.astype(np.uint8),
+            (frame.shape[1], frame.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        frame[full > 0] = (0.6 * frame[full > 0] + 0.4 * np.array([0, 255, 0])).astype(
+            np.uint8
+        )
