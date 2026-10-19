@@ -5,10 +5,10 @@ from cv2.typing import MatLike
 from utils import IndexedFrame, print_time
 
 SCALE = 0.5
-MIN_MOVEMENT = 1  # px/frame 
-STATIC_THRESH = 0.3 # px/frame 
-MIN_MOVING_PX = 200 # px
-MIN_GRADIENT = 20 
+MIN_MOVEMENT = 1  # px/frame
+STATIC_THRESH = 0.3  # px/frame
+MIN_MOVING_PX = 200  # px
+MIN_GRADIENT = 20
 
 FARNEBACK = {
     "pyr_scale": 0.5,
@@ -29,7 +29,9 @@ class MovementDetection:
 
     def get_movement(self, item: IndexedFrame) -> float:
         frame = cv2.cvtColor(item.frame, cv2.COLOR_BGR2GRAY)
-        frame = cv2.resize(frame, None, fx=SCALE, fy=SCALE, interpolation=cv2.INTER_AREA)
+        frame = cv2.resize(
+            frame, None, fx=SCALE, fy=SCALE, interpolation=cv2.INTER_AREA
+        )
 
         box_mask = self._build_mask(item, frame.shape)
         movement = self._track(frame, box_mask)
@@ -62,9 +64,7 @@ class MovementDetection:
                 else box.xyxy[0]
             )
             x1, y1, x2, y2 = (int(v * SCALE) for v in coords[:4])
-            cv2.rectangle(
-                mask, (x1, y1), (x2, y2), 255, -1
-            )
+            cv2.rectangle(mask, (x1, y1), (x2, y2), 255, -1)
         return mask
 
     def _track(
@@ -75,7 +75,9 @@ class MovementDetection:
             return None
 
         if self.old_frame.shape != frame.shape:
-            print_time(f"self.old_frame.shape: {self.old_frame.shape}, frame.shape: {frame.shape}")
+            print_time(
+                f"self.old_frame.shape: {self.old_frame.shape}, frame.shape: {frame.shape}"
+            )
             return None
 
         flow = cv2.calcOpticalFlowFarneback(
@@ -85,7 +87,6 @@ class MovementDetection:
             **FARNEBACK,
         )
 
-        # Only trust textured pixels inside the detection boxes
         gx = cv2.Sobel(frame, cv2.CV_32F, 1, 0, ksize=3)
         gy = cv2.Sobel(frame, cv2.CV_32F, 0, 1, ksize=3)
         textured = np.hypot(gx, gy) > MIN_GRADIENT
@@ -94,14 +95,12 @@ class MovementDetection:
         if np.count_nonzero(valid) < MIN_MOVING_PX:
             return None
 
-        # Drop static background (empty centerbeams, scenery behind the car)
         mag = np.linalg.norm(flow, axis=2)
         moving = valid & (mag > STATIC_THRESH)
 
         if np.count_nonzero(moving) < MIN_MOVING_PX:
-            return 0.0, 0.0  # stopped, or only background visible
+            return 0.0, 0.0
 
-        # Keep only the dominant horizontal direction
         pos = moving & (flow[..., 0] > 0)
         neg = moving & (flow[..., 0] < 0)
         moving = pos if np.count_nonzero(pos) >= np.count_nonzero(neg) else neg

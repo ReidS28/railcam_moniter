@@ -8,7 +8,6 @@ from uuid import UUID
 
 import constants
 import cv2
-from detection.movement_detection import MovementDetection
 from ultralytics import YOLO
 from ultralytics.utils.plotting import colors
 from utils import IndexedFrame, get_frame_from_id, print_time
@@ -44,7 +43,7 @@ def _worker(
         if name.upper() == constants.DETECTION_TARGET
     ]
 
-    movements_detection = MovementDetection()
+    # movements_detection = MovementDetection()
 
     while True:
         try:
@@ -123,8 +122,8 @@ def _worker(
                     }
                 )
 
-        dx = movements_detection.get_movement(item)
-        print_time(f"dx: {dx}")
+        # dx = movements_detection.get_movement(item) # this takes too much time so just skip for now, try to get induvidual car detection working first
+        # print_time(f"dx: {dx}")
 
         update_bounding_boxes_callback(payload)
 
